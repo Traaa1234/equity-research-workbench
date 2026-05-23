@@ -1,0 +1,31 @@
+{
+  "_fixture": { "recorded_at": "2026-05-23", "endpoint": "/financials/income-statements?ticker=AAPL&period=annual&limit=5" },
+  "income_statements": [
+    {
+      "ticker": "AAPL",
+      "period": "annual",
+      "report_period": "2024-09-30",
+      "currency": "USD",
+      "revenue": 383285000000,
+      "cost_of_revenue": 214137000000,
+      "gross_profit": 169148000000,
+      "operating_expense": 54847000000,
+      "operating_income": 114301000000,
+      "net_income": 99803000000,
+      "earnings_per_share": 6.16
+    },
+    {
+      "ticker": "AAPL",
+      "period": "annual",
+      "report_period": "2023-09-30",
+      "currency": "USD",
+      "revenue": 394328000000,
+      "cost_of_revenue": 223546000000,
+      "gross_profit": 170782000000,
+      "operating_expense": 54847000000,
+      "operating_income": 114935000000,
+      "net_income": 96995000000,
+      "earnings_per_share": 6.13
+    }
+  ]
+}

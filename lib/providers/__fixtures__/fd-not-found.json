@@ -1,0 +1,4 @@
+{
+  "_fixture": { "recorded_at": "2026-05-23", "endpoint": "/company/facts?ticker=XXXX" },
+  "error": "Ticker not found"
+}

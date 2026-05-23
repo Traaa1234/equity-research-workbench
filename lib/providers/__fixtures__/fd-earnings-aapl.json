@@ -1,0 +1,7 @@
+{
+  "_fixture": { "recorded_at": "2026-05-23", "endpoint": "/earnings?ticker=AAPL&limit=8" },
+  "earnings": [
+    { "ticker": "AAPL", "period": "2024-12-31", "reported_date": "2025-01-30", "eps": 2.40 },
+    { "ticker": "AAPL", "period": "2024-09-30", "reported_date": "2024-11-01", "eps": 1.64 }
+  ]
+}

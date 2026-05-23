@@ -1,0 +1,11 @@
+{
+  "_fixture": { "recorded_at": "2026-05-23", "endpoint": "/company/facts?ticker=AAPL" },
+  "company_facts": {
+    "ticker": "AAPL",
+    "name": "Apple Inc.",
+    "cik": "0000320193",
+    "exchange": "NASDAQ",
+    "sector": "Technology",
+    "industry": "Consumer Electronics"
+  }
+}

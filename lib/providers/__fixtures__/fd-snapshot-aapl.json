@@ -1,0 +1,16 @@
+{
+  "_fixture": { "recorded_at": "2026-05-23", "endpoint": "/financial-metrics/snapshot?ticker=AAPL" },
+  "snapshot": {
+    "ticker": "AAPL",
+    "market_cap": 3100000000000,
+    "price_to_earnings_ratio": 28.5,
+    "price_to_sales_ratio": 7.8,
+    "price_to_book_ratio": 45.2,
+    "enterprise_value_to_ebitda_ratio": 22.1,
+    "peg_ratio": 2.4,
+    "fifty_two_week_high": 220.5,
+    "fifty_two_week_low": 165.0,
+    "latest_price": 195.40,
+    "as_of": "2026-05-23T20:00:00Z"
+  }
+}

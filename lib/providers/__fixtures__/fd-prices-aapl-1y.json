@@ -1,0 +1,7 @@
+{
+  "_fixture": { "recorded_at": "2026-05-23", "endpoint": "/prices?ticker=AAPL&interval=day&interval_multiplier=1&start_date=2025-05-23&end_date=2026-05-23" },
+  "prices": [
+    { "ticker": "AAPL", "time": "2025-05-23", "open": 188.0, "high": 190.5, "low": 187.2, "close": 189.4, "volume": 50000000 },
+    { "ticker": "AAPL", "time": "2025-05-26", "open": 189.4, "high": 191.0, "low": 188.8, "close": 190.6, "volume": 48000000 }
+  ]
+}
