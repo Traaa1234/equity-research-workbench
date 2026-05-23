@@ -97,6 +97,40 @@ describe('FinancialDatasetsProvider', () => {
     });
   });
 
+  describe('.statements()', () => {
+    it('returns normalized income statement rows', async () => {
+      const fix = loadFixture('fd-income-aapl-annual.json');
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const result = await provider.statements('AAPL', 'income', 'annual');
+
+      expect(result.ticker).toBe('AAPL');
+      expect(result.statementType).toBe('income');
+      expect(result.periodType).toBe('annual');
+      expect(result.rows.length).toBeGreaterThan(0);
+      const revenue2024 = result.rows.find(
+        (r) => r.lineItem === 'revenue' && r.periodEnd === '2024-09-30'
+      );
+      expect(revenue2024?.value).toBe(383285000000);
+      expect(revenue2024?.currency).toBe('USD');
+    });
+
+    it('hits the correct endpoint for balance sheet quarterly', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        jsonResponse({ balance_sheets: [] })
+      );
+      const provider = makeProvider(fetchMock);
+
+      await provider.statements('AAPL', 'balance', 'quarterly');
+
+      const url = fetchMock.mock.calls[0]![0] as string;
+      expect(url).toContain('/financials/balance-sheets');
+      expect(url).toContain('ticker=AAPL');
+      expect(url).toContain('period=quarterly');
+    });
+  });
+
   describe('retry behavior', () => {
     it('retries on RateLimitError and succeeds on second attempt', async () => {
       vi.useFakeTimers();

@@ -79,11 +79,63 @@ export class FinancialDatasetsProvider implements Provider {
   }
 
   async statements(
-    _ticker: string,
-    _statementType: StatementType,
-    _periodType: PeriodType
+    ticker: string,
+    statementType: StatementType,
+    periodType: PeriodType
   ): Promise<StatementBundle> {
-    throw new Error('Not yet implemented');
+    const t = ticker.toUpperCase();
+    const endpointMap: Record<StatementType, { path: string; arrayKey: string; lineItems: string[] }> = {
+      income: {
+        path: 'income-statements',
+        arrayKey: 'income_statements',
+        lineItems: [
+          'revenue',
+          'cost_of_revenue',
+          'gross_profit',
+          'operating_expense',
+          'operating_income',
+          'net_income',
+          'earnings_per_share'
+        ]
+      },
+      balance: {
+        path: 'balance-sheets',
+        arrayKey: 'balance_sheets',
+        lineItems: [
+          'total_assets',
+          'total_liabilities',
+          'total_equity',
+          'cash_and_equivalents',
+          'long_term_debt',
+          'short_term_debt'
+        ]
+      },
+      cash_flow: {
+        path: 'cash-flow-statements',
+        arrayKey: 'cash_flow_statements',
+        lineItems: [
+          'operating_cash_flow',
+          'investing_cash_flow',
+          'financing_cash_flow',
+          'capital_expenditure',
+          'free_cash_flow'
+        ]
+      }
+    };
+    const spec = endpointMap[statementType];
+    const body = await this.request<Record<string, any[]>>(
+      `/financials/${spec.path}?ticker=${t}&period=${periodType}&limit=5`
+    );
+    const items = body[spec.arrayKey] ?? [];
+    const rows = items.flatMap((item: any) =>
+      spec.lineItems.map((lineItem) => ({
+        periodEnd: item.report_period,
+        lineItem,
+        value: numOrNull(item[lineItem]),
+        currency: item.currency ?? 'USD'
+      }))
+    );
+    return { ticker: t, statementType, periodType, rows };
   }
   async prices(_ticker: string, _range: '1Y' | '5Y'): Promise<PricePoint[]> {
     throw new Error('Not yet implemented');
