@@ -131,6 +131,60 @@ describe('FinancialDatasetsProvider', () => {
     });
   });
 
+  describe('.prices()', () => {
+    it('returns normalized daily prices', async () => {
+      const fix = loadFixture('fd-prices-aapl-1y.json');
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const result = await provider.prices('AAPL', '1Y');
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({
+        date: '2025-05-23',
+        open: 188.0,
+        close: 189.4,
+        volume: 50000000
+      });
+    });
+
+    it('requests the right date range for 1Y', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ prices: [] }));
+      const provider = makeProvider(fetchMock);
+
+      await provider.prices('AAPL', '1Y');
+
+      const url = fetchMock.mock.calls[0]![0] as string;
+      expect(url).toContain('/prices');
+      expect(url).toContain('interval=day');
+      // Range covers ~365 days.
+      const startMatch = url.match(/start_date=(\d{4}-\d{2}-\d{2})/);
+      const endMatch = url.match(/end_date=(\d{4}-\d{2}-\d{2})/);
+      expect(startMatch).not.toBeNull();
+      expect(endMatch).not.toBeNull();
+    });
+  });
+
+  describe('.earnings()', () => {
+    it('returns normalized earnings points', async () => {
+      const fix = loadFixture('fd-earnings-aapl.json');
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const result = await provider.earnings('AAPL', 8);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({
+        periodEnd: '2024-12-31',
+        reportedDate: '2025-01-30',
+        epsActual: 2.4
+      });
+      // price_1d_pct and price_5d_pct are computed by the service later — provider returns null here.
+      expect(result[0]!.price1dPct).toBeNull();
+      expect(result[0]!.price5dPct).toBeNull();
+    });
+  });
+
   describe('retry behavior', () => {
     it('retries on RateLimitError and succeeds on second attempt', async () => {
       vi.useFakeTimers();

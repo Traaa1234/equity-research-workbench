@@ -137,11 +137,40 @@ export class FinancialDatasetsProvider implements Provider {
     );
     return { ticker: t, statementType, periodType, rows };
   }
-  async prices(_ticker: string, _range: '1Y' | '5Y'): Promise<PricePoint[]> {
-    throw new Error('Not yet implemented');
+  async prices(ticker: string, range: '1Y' | '5Y'): Promise<PricePoint[]> {
+    const t = ticker.toUpperCase();
+    const end = new Date();
+    const start = new Date();
+    start.setFullYear(start.getFullYear() - (range === '1Y' ? 1 : 5));
+    const startDate = start.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+
+    const body = await this.request<{ prices: any[] }>(
+      `/prices?ticker=${t}&interval=day&interval_multiplier=1&start_date=${startDate}&end_date=${endDate}`
+    );
+    return (body.prices ?? []).map((p) => ({
+      date: p.time,
+      open: numOrNull(p.open),
+      high: numOrNull(p.high),
+      low: numOrNull(p.low),
+      close: numOrNull(p.close) ?? 0,
+      adjClose: numOrNull(p.adj_close),
+      volume: numOrNull(p.volume)
+    }));
   }
-  async earnings(_ticker: string, _count: number): Promise<EarningsPoint[]> {
-    throw new Error('Not yet implemented');
+
+  async earnings(ticker: string, count: number): Promise<EarningsPoint[]> {
+    const t = ticker.toUpperCase();
+    const body = await this.request<{ earnings: any[] }>(
+      `/earnings?ticker=${t}&limit=${count}`
+    );
+    return (body.earnings ?? []).map((e) => ({
+      periodEnd: e.period,
+      reportedDate: e.reported_date ?? null,
+      epsActual: numOrNull(e.eps),
+      price1dPct: null,
+      price5dPct: null
+    }));
   }
 
   // ----- HTTP plumbing -----
