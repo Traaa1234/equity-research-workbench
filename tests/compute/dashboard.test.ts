@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReturnsSeries } from '@/lib/compute/dashboard';
+import { buildReturnsSeries, buildGrowthSummary } from '@/lib/compute/dashboard';
 import type { FundamentalRow } from '@/lib/providers/types';
 
 function row(periodEnd: string, lineItem: string, value: number): FundamentalRow {
@@ -42,5 +42,37 @@ describe('buildReturnsSeries', () => {
     expect(out[0]!.roe).toBeNull();
     expect(out[0]!.roa).toBeNull();
     expect(out[0]!.grossMargin).toBeNull();
+  });
+});
+
+describe('buildGrowthSummary', () => {
+  it('computes 3Y and 5Y CAGR for revenue, EPS, and FCF', () => {
+    const income = [
+      row('2024-09-30', 'revenue', 1610),
+      row('2023-09-30', 'revenue', 1400),
+      row('2022-09-30', 'revenue', 1210),
+      row('2021-09-30', 'revenue', 1100),
+      row('2019-09-30', 'revenue', 1000),
+      row('2024-09-30', 'earnings_per_share', 6.16),
+      row('2019-09-30', 'earnings_per_share', 3.0)
+    ];
+    const cashFlow = [
+      row('2024-09-30', 'free_cash_flow', 150),
+      row('2019-09-30', 'free_cash_flow', 100)
+    ];
+
+    const out = buildGrowthSummary(income, cashFlow);
+
+    expect(out.revenueCAGR3Y).toBeCloseTo(0.1354, 2);
+    expect(out.revenueCAGR5Y).toBeCloseTo(0.0998, 2);
+    expect(out.epsCAGR5Y).toBeCloseTo(0.155, 2);
+    expect(out.fcfCAGR5Y).toBeCloseTo(0.0845, 2);
+  });
+
+  it('returns null when not enough history is available', () => {
+    const income = [row('2024-09-30', 'revenue', 1000)];
+    const out = buildGrowthSummary(income, []);
+    expect(out.revenueCAGR3Y).toBeNull();
+    expect(out.revenueCAGR5Y).toBeNull();
   });
 });
