@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.0.9",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -19,5 +22,24 @@
     "supabase:stop": "supabase stop",
     "seed": "tsx scripts/seed.ts",
     "try": "tsx scripts/try-snapshot.ts"
+  },
+  "dependencies": {
+    "next": "^14.2.35",
+    "pino": "^10.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^18.3.29",
+    "@types/react-dom": "^18.3.7",
+    "@vitest/coverage-v8": "^4.1.7",
+    "eslint": "^10.4.0",
+    "eslint-config-next": "^16.2.6",
+    "prettier": "^3.8.3",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
   }
 }
