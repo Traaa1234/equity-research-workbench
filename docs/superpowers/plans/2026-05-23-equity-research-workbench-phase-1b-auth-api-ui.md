@@ -3002,6 +3002,807 @@ git commit -m "feat(ui): add-ticker dialog with on-demand ingest"
 
 ---
 
+## Milestone 11: Analytics cards — Returns, Growth, Valuation, Earnings
+
+Goal: close the remaining Slice 1 spec items by adding four analytics cards to the ticker dashboard. Compute functions from Phase 1A M3 (`multiples.ts`, `growth.ts`, `returns.ts`) are the engine; this milestone is mostly thin presentational wrappers + small server-side computation helpers.
+
+### Task 11.1: ReturnsCard — ROE, ROA, margins over 5Y
+
+**Files:**
+- Create: `lib/compute/dashboard.ts`
+- Create: `app/(app)/stock/[ticker]/_components/returns-card.tsx`
+- Create: `tests/compute/dashboard.test.ts`
+
+`lib/compute/dashboard.ts` will hold pure functions that take raw fundamentals rows and return the shape each card consumes. Heavily unit-testable.
+
+- [ ] **Step 1: Write the failing unit test**
+
+```ts
+// tests/compute/dashboard.test.ts
+import { describe, it, expect } from 'vitest';
+import { buildReturnsSeries } from '@/lib/compute/dashboard';
+import type { FundamentalRow } from '@/lib/providers/types';
+
+function row(periodEnd: string, lineItem: string, value: number): FundamentalRow {
+  return { periodEnd, lineItem, value, currency: 'USD' };
+}
+
+describe('buildReturnsSeries', () => {
+  it('computes ROE, ROA, and margins per year', () => {
+    const income = [
+      row('2024-09-30', 'revenue', 1000),
+      row('2024-09-30', 'gross_profit', 400),
+      row('2024-09-30', 'operating_income', 200),
+      row('2024-09-30', 'net_income', 100),
+      row('2023-09-30', 'revenue', 800),
+      row('2023-09-30', 'gross_profit', 320),
+      row('2023-09-30', 'operating_income', 160),
+      row('2023-09-30', 'net_income', 80)
+    ];
+    const balance = [
+      row('2024-09-30', 'total_assets', 2000),
+      row('2024-09-30', 'total_equity', 500),
+      row('2023-09-30', 'total_assets', 1800),
+      row('2023-09-30', 'total_equity', 400)
+    ];
+
+    const out = buildReturnsSeries(income, balance);
+
+    expect(out).toHaveLength(2);
+    expect(out[0]!.periodEnd).toBe('2024-09-30'); // newest first
+    expect(out[0]!.roe).toBeCloseTo(0.2);          // 100/500
+    expect(out[0]!.roa).toBeCloseTo(0.05);          // 100/2000
+    expect(out[0]!.grossMargin).toBeCloseTo(0.4);   // 400/1000
+    expect(out[0]!.operatingMargin).toBeCloseTo(0.2); // 200/1000
+    expect(out[0]!.netMargin).toBeCloseTo(0.1);     // 100/1000
+  });
+
+  it('returns null for any metric whose inputs are missing', () => {
+    const income = [row('2024-09-30', 'revenue', 1000)];
+    const out = buildReturnsSeries(income, []);
+    expect(out[0]!.roe).toBeNull();
+    expect(out[0]!.roa).toBeNull();
+    expect(out[0]!.grossMargin).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run, verify it fails**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+pnpm test tests/compute/dashboard.test.ts
+```
+
+- [ ] **Step 3: Write `lib/compute/dashboard.ts`**
+
+```ts
+import type { FundamentalRow } from '@/lib/providers/types';
+import { computeROE, computeROA } from '@/lib/compute/returns';
+
+export interface ReturnsPoint {
+  periodEnd: string;
+  roe: number | null;
+  roa: number | null;
+  grossMargin: number | null;
+  operatingMargin: number | null;
+  netMargin: number | null;
+}
+
+function findValue(rows: FundamentalRow[], periodEnd: string, lineItem: string): number | null {
+  return rows.find((r) => r.periodEnd === periodEnd && r.lineItem === lineItem)?.value ?? null;
+}
+
+/**
+ * Build a per-period series of returns + margins, newest first.
+ * Joins income and balance bundles on periodEnd; periods missing from either
+ * side appear with nulls where data is absent.
+ */
+export function buildReturnsSeries(
+  income: FundamentalRow[],
+  balance: FundamentalRow[]
+): ReturnsPoint[] {
+  const periods = Array.from(
+    new Set([...income.map((r) => r.periodEnd), ...balance.map((r) => r.periodEnd)])
+  )
+    .sort()
+    .reverse()
+    .slice(0, 5);
+
+  return periods.map((periodEnd) => {
+    const revenue = findValue(income, periodEnd, 'revenue');
+    const grossProfit = findValue(income, periodEnd, 'gross_profit');
+    const operatingIncome = findValue(income, periodEnd, 'operating_income');
+    const netIncome = findValue(income, periodEnd, 'net_income');
+    const totalEquity = findValue(balance, periodEnd, 'total_equity');
+    const totalAssets = findValue(balance, periodEnd, 'total_assets');
+
+    return {
+      periodEnd,
+      roe: computeROE(netIncome, totalEquity),
+      roa: computeROA(netIncome, totalAssets),
+      grossMargin: revenue && grossProfit != null ? grossProfit / revenue : null,
+      operatingMargin: revenue && operatingIncome != null ? operatingIncome / revenue : null,
+      netMargin: revenue && netIncome != null ? netIncome / revenue : null
+    };
+  });
+}
+```
+
+- [ ] **Step 4: Run, verify passes**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+pnpm test tests/compute/dashboard.test.ts
+```
+
+- [ ] **Step 5: Write the card component**
+
+```tsx
+// app/(app)/stock/[ticker]/_components/returns-card.tsx
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import type { ReturnsPoint } from '@/lib/compute/dashboard';
+
+function fmtPct(v: number | null) {
+  if (v == null) return '—';
+  return `${(v * 100).toFixed(1)}%`;
+}
+
+export function ReturnsCard({ series }: { series: ReturnsPoint[] }) {
+  if (series.length === 0) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Profitability & returns</CardTitle></CardHeader>
+        <CardContent><p className="text-sm text-muted-foreground">No data.</p></CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader><CardTitle>Profitability & returns (5Y)</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-32">Metric</TableHead>
+              {series.map((p) => (
+                <TableHead key={p.periodEnd} className="text-right tabular-nums">
+                  {p.periodEnd.slice(0, 7)}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {[
+              { label: 'ROE', key: 'roe' },
+              { label: 'ROA', key: 'roa' },
+              { label: 'Gross margin', key: 'grossMargin' },
+              { label: 'Operating margin', key: 'operatingMargin' },
+              { label: 'Net margin', key: 'netMargin' }
+            ].map(({ label, key }) => (
+              <TableRow key={key}>
+                <TableCell className="font-medium">{label}</TableCell>
+                {series.map((p) => (
+                  <TableCell key={p.periodEnd} className="text-right tabular-nums">
+                    {fmtPct((p as Record<string, number | null>)[key] ?? null)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <p className="mt-3 text-xs text-muted-foreground">
+          ROIC is deferred to Slice 1.5 (requires pretax-income data not in the current schema).
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+git add lib/compute/dashboard.ts tests/compute/dashboard.test.ts app/\(app\)/stock/\[ticker\]/_components/returns-card.tsx
+git commit -m "feat(ui): ReturnsCard with 5Y ROE/ROA + margins from fundamentals"
+```
+
+---
+
+### Task 11.2: GrowthCard — CAGR over 3Y and 5Y
+
+**Files:**
+- Modify: `lib/compute/dashboard.ts` (append `buildGrowthSummary`)
+- Create: `app/(app)/stock/[ticker]/_components/growth-card.tsx`
+- Append to: `tests/compute/dashboard.test.ts`
+
+- [ ] **Step 1: Append failing test**
+
+```ts
+import { buildGrowthSummary } from '@/lib/compute/dashboard';
+
+describe('buildGrowthSummary', () => {
+  it('computes 3Y and 5Y CAGR for revenue, EPS, and FCF', () => {
+    const income = [
+      row('2024-09-30', 'revenue', 1610), // 2024
+      row('2023-09-30', 'revenue', 1400), // 2023
+      row('2022-09-30', 'revenue', 1210), // 2022 — 3Y start vs 2024
+      row('2021-09-30', 'revenue', 1100),
+      row('2019-09-30', 'revenue', 1000), // 5Y start
+      row('2024-09-30', 'earnings_per_share', 6.16),
+      row('2019-09-30', 'earnings_per_share', 3.0)
+    ];
+    const cashFlow = [
+      row('2024-09-30', 'free_cash_flow', 150),
+      row('2019-09-30', 'free_cash_flow', 100)
+    ];
+
+    const out = buildGrowthSummary(income, cashFlow);
+
+    // 1610 / 1210 over 2y → (1610/1210)^(1/2) - 1 = ~0.154
+    expect(out.revenueCAGR3Y).toBeCloseTo(0.154, 2);
+    // 1610 / 1000 over 5y → (1610/1000)^(1/5) - 1 = ~0.100
+    expect(out.revenueCAGR5Y).toBeCloseTo(0.0998, 2);
+    expect(out.epsCAGR5Y).toBeCloseTo(0.155, 2); // (6.16/3)^(1/5) - 1
+    expect(out.fcfCAGR5Y).toBeCloseTo(0.0845, 2); // (150/100)^(1/5) - 1
+  });
+
+  it('returns null when not enough history is available', () => {
+    const income = [row('2024-09-30', 'revenue', 1000)];
+    const out = buildGrowthSummary(income, []);
+    expect(out.revenueCAGR3Y).toBeNull();
+    expect(out.revenueCAGR5Y).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Append `buildGrowthSummary` to `lib/compute/dashboard.ts`**
+
+```ts
+import { computeCAGR } from '@/lib/compute/growth';
+
+export interface GrowthSummary {
+  revenueCAGR3Y: number | null;
+  revenueCAGR5Y: number | null;
+  epsCAGR3Y: number | null;
+  epsCAGR5Y: number | null;
+  fcfCAGR3Y: number | null;
+  fcfCAGR5Y: number | null;
+}
+
+function periodEndYearsAgo(rows: FundamentalRow[], lineItem: string, years: number): number | null {
+  const periods = rows
+    .filter((r) => r.lineItem === lineItem)
+    .map((r) => ({ periodEnd: r.periodEnd, value: r.value }))
+    .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
+    .reverse();
+  if (periods.length === 0) return null;
+  // Index `years` back from the most recent period.
+  const target = periods[years];
+  return target?.value ?? null;
+}
+
+function mostRecent(rows: FundamentalRow[], lineItem: string): number | null {
+  const sorted = rows
+    .filter((r) => r.lineItem === lineItem)
+    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+  return sorted[0]?.value ?? null;
+}
+
+export function buildGrowthSummary(
+  income: FundamentalRow[],
+  cashFlow: FundamentalRow[]
+): GrowthSummary {
+  const cagr = (end: number | null, start: number | null, years: number) =>
+    computeCAGR(end, start, years);
+
+  return {
+    revenueCAGR3Y: cagr(mostRecent(income, 'revenue'), periodEndYearsAgo(income, 'revenue', 3), 3),
+    revenueCAGR5Y: cagr(mostRecent(income, 'revenue'), periodEndYearsAgo(income, 'revenue', 5), 5),
+    epsCAGR3Y: cagr(mostRecent(income, 'earnings_per_share'), periodEndYearsAgo(income, 'earnings_per_share', 3), 3),
+    epsCAGR5Y: cagr(mostRecent(income, 'earnings_per_share'), periodEndYearsAgo(income, 'earnings_per_share', 5), 5),
+    fcfCAGR3Y: cagr(mostRecent(cashFlow, 'free_cash_flow'), periodEndYearsAgo(cashFlow, 'free_cash_flow', 3), 3),
+    fcfCAGR5Y: cagr(mostRecent(cashFlow, 'free_cash_flow'), periodEndYearsAgo(cashFlow, 'free_cash_flow', 5), 5)
+  };
+}
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+pnpm test tests/compute/dashboard.test.ts
+```
+
+- [ ] **Step 4: Write the card**
+
+```tsx
+// app/(app)/stock/[ticker]/_components/growth-card.tsx
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { GrowthSummary } from '@/lib/compute/dashboard';
+
+function fmtPct(v: number | null) {
+  if (v == null) return '—';
+  const pct = (v * 100).toFixed(1);
+  return v >= 0 ? `+${pct}%` : `${pct}%`;
+}
+
+export function GrowthCard({ growth }: { growth: GrowthSummary }) {
+  const rows: Array<{ label: string; threeY: number | null; fiveY: number | null }> = [
+    { label: 'Revenue', threeY: growth.revenueCAGR3Y, fiveY: growth.revenueCAGR5Y },
+    { label: 'EPS', threeY: growth.epsCAGR3Y, fiveY: growth.epsCAGR5Y },
+    { label: 'FCF', threeY: growth.fcfCAGR3Y, fiveY: growth.fcfCAGR5Y }
+  ];
+  return (
+    <Card>
+      <CardHeader><CardTitle>Growth (CAGR)</CardTitle></CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-3 gap-x-4 gap-y-3 text-sm">
+          <dt className="text-muted-foreground">Metric</dt>
+          <dt className="text-muted-foreground text-right">3Y</dt>
+          <dt className="text-muted-foreground text-right">5Y</dt>
+          {rows.map((r) => (
+            <div key={r.label} className="contents">
+              <dd className="font-medium">{r.label}</dd>
+              <dd className="text-right tabular-nums">{fmtPct(r.threeY)}</dd>
+              <dd className="text-right tabular-nums">{fmtPct(r.fiveY)}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+git add lib/compute/dashboard.ts tests/compute/dashboard.test.ts app/\(app\)/stock/\[ticker\]/_components/growth-card.tsx
+git commit -m "feat(ui): GrowthCard with 3Y/5Y CAGR for revenue, EPS, FCF"
+```
+
+---
+
+### Task 11.3: ValuationCard — current vs 5Y avg multiples
+
+**Files:**
+- Modify: `lib/compute/dashboard.ts` (append `buildValuationSummary`)
+- Create: `app/(app)/stock/[ticker]/_components/valuation-card.tsx`
+- Append to: `tests/compute/dashboard.test.ts`
+
+Constraint: we only have current snapshot data + historical EPS + historical prices. P/E is reconstructible from these (year-end price ÷ that year's EPS). P/S, P/B, EV/EBITDA require shares outstanding which we don't store yet — show current only, with a note.
+
+- [ ] **Step 1: Append failing test**
+
+```ts
+import { buildValuationSummary } from '@/lib/compute/dashboard';
+import type { PricePoint } from '@/lib/providers/types';
+
+function price(date: string, close: number): PricePoint {
+  return { date, open: null, high: null, low: null, close, adjClose: close, volume: null };
+}
+
+describe('buildValuationSummary', () => {
+  it('computes current P/E and 5Y average P/E from EPS + year-end prices', () => {
+    const income = [
+      row('2024-09-30', 'earnings_per_share', 6.0),
+      row('2023-09-30', 'earnings_per_share', 5.0),
+      row('2022-09-30', 'earnings_per_share', 4.0),
+      row('2021-09-30', 'earnings_per_share', 3.0),
+      row('2020-09-30', 'earnings_per_share', 2.0)
+    ];
+    const prices = [
+      price('2024-09-27', 180), // P/E = 30
+      price('2023-09-29', 150), // P/E = 30
+      price('2022-09-30', 120), // P/E = 30
+      price('2021-09-30', 90),  // P/E = 30
+      price('2020-09-30', 60)   // P/E = 30
+    ];
+    const out = buildValuationSummary({ pe: 35, ps: 7.8, pb: 45.2, evEbitda: 22.1, peg: 2.4 }, income, prices);
+    expect(out.currentPE).toBe(35);
+    expect(out.avgPE5Y).toBeCloseTo(30, 0);
+    expect(out.currentPS).toBe(7.8);
+    expect(out.avgPS5Y).toBeNull(); // no historical computation possible
+  });
+
+  it('skips years with missing EPS or no nearby price', () => {
+    const income = [row('2024-09-30', 'earnings_per_share', 6.0)];
+    const prices = [price('2024-09-27', 180)];
+    const out = buildValuationSummary({ pe: 30 }, income, prices);
+    expect(out.avgPE5Y).toBeCloseTo(30); // average of just one year
+  });
+});
+```
+
+- [ ] **Step 2: Append to `lib/compute/dashboard.ts`**
+
+```ts
+import type { PricePoint } from '@/lib/providers/types';
+
+export interface CurrentMultiples {
+  pe?: number | null;
+  ps?: number | null;
+  pb?: number | null;
+  evEbitda?: number | null;
+  peg?: number | null;
+}
+
+export interface ValuationSummary {
+  currentPE: number | null;
+  avgPE5Y: number | null;
+  currentPS: number | null;
+  avgPS5Y: number | null;   // always null in Slice 1 — no historical shares-outstanding data
+  currentPB: number | null;
+  avgPB5Y: number | null;   // same
+  currentEvEbitda: number | null;
+  avgEvEbitda5Y: number | null; // same
+  currentPEG: number | null;
+}
+
+function findClosestPrice(prices: PricePoint[], target: string): number | null {
+  if (prices.length === 0) return null;
+  const targetMs = Date.parse(target);
+  if (isNaN(targetMs)) return null;
+  let best: PricePoint | null = null;
+  let bestDelta = Infinity;
+  for (const p of prices) {
+    const delta = Math.abs(Date.parse(p.date) - targetMs);
+    if (delta < bestDelta) {
+      best = p;
+      bestDelta = delta;
+    }
+  }
+  // Require the closest price to be within 30 days of the target.
+  return best && bestDelta <= 30 * 24 * 60 * 60 * 1000 ? best.close : null;
+}
+
+export function buildValuationSummary(
+  current: CurrentMultiples,
+  income: FundamentalRow[],
+  prices: PricePoint[]
+): ValuationSummary {
+  const epsByPeriod = income
+    .filter((r) => r.lineItem === 'earnings_per_share' && r.value != null)
+    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))
+    .slice(0, 5);
+
+  const historicalPEs: number[] = [];
+  for (const { periodEnd, value: eps } of epsByPeriod) {
+    if (eps == null || eps <= 0) continue;
+    const price = findClosestPrice(prices, periodEnd);
+    if (price == null) continue;
+    historicalPEs.push(price / eps);
+  }
+  const avgPE5Y =
+    historicalPEs.length > 0
+      ? historicalPEs.reduce((a, b) => a + b, 0) / historicalPEs.length
+      : null;
+
+  return {
+    currentPE: current.pe ?? null,
+    avgPE5Y,
+    currentPS: current.ps ?? null,
+    avgPS5Y: null,
+    currentPB: current.pb ?? null,
+    avgPB5Y: null,
+    currentEvEbitda: current.evEbitda ?? null,
+    avgEvEbitda5Y: null,
+    currentPEG: current.peg ?? null
+  };
+}
+```
+
+- [ ] **Step 3: Run tests**
+
+- [ ] **Step 4: Write the card**
+
+```tsx
+// app/(app)/stock/[ticker]/_components/valuation-card.tsx
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { ValuationSummary } from '@/lib/compute/dashboard';
+
+function fmtMultiple(v: number | null) {
+  if (v == null) return '—';
+  return v.toFixed(1) + '×';
+}
+
+function delta(curr: number | null, avg: number | null): string {
+  if (curr == null || avg == null) return '';
+  const d = ((curr - avg) / avg) * 100;
+  const sign = d >= 0 ? '+' : '';
+  return ` (${sign}${d.toFixed(0)}% vs avg)`;
+}
+
+export function ValuationCard({ valuation }: { valuation: ValuationSummary }) {
+  const rows: Array<{ label: string; current: number | null; avg: number | null }> = [
+    { label: 'P/E', current: valuation.currentPE, avg: valuation.avgPE5Y },
+    { label: 'P/S', current: valuation.currentPS, avg: valuation.avgPS5Y },
+    { label: 'P/B', current: valuation.currentPB, avg: valuation.avgPB5Y },
+    { label: 'EV/EBITDA', current: valuation.currentEvEbitda, avg: valuation.avgEvEbitda5Y },
+    { label: 'PEG', current: valuation.currentPEG, avg: null }
+  ];
+  return (
+    <Card>
+      <CardHeader><CardTitle>Valuation</CardTitle></CardHeader>
+      <CardContent>
+        <dl className="space-y-2 text-sm">
+          {rows.map((r) => (
+            <div key={r.label} className="flex justify-between items-baseline">
+              <dt className="text-muted-foreground">{r.label}</dt>
+              <dd className="font-semibold tabular-nums">
+                {fmtMultiple(r.current)}
+                <span className="ml-1 text-xs text-muted-foreground font-normal">
+                  {delta(r.current, r.avg)}
+                </span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-muted-foreground">
+          5Y averages for P/S, P/B, EV/EBITDA require historical shares-outstanding data, deferred to Slice 1.5.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+git add lib/compute/dashboard.ts tests/compute/dashboard.test.ts app/\(app\)/stock/\[ticker\]/_components/valuation-card.tsx
+git commit -m "feat(ui): ValuationCard with current vs 5Y avg P/E"
+```
+
+---
+
+### Task 11.4: EarningsCard — real 8Q EPS
+
+**Files:**
+- Modify: `app/(app)/stock/[ticker]/_components/earnings-card.tsx` (replace stub)
+
+The `earnings` table in Phase 1A is sparse (many tickers had no historical earnings data from FD free tier or yfinance). Render what we have; graceful "no data" otherwise.
+
+- [ ] **Step 1: Replace `earnings-card.tsx` with the real implementation**
+
+```tsx
+// app/(app)/stock/[ticker]/_components/earnings-card.tsx
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getServiceDb } from '@/lib/db/client';
+import { earnings as earningsTable } from '@/lib/db/schema';
+import { eq, desc } from 'drizzle-orm';
+
+function fmtEps(v: string | null): string {
+  if (v == null) return '—';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return `$${n.toFixed(2)}`;
+}
+
+function fmtDate(d: string): string {
+  return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export async function EarningsCard({ ticker }: { ticker: string }) {
+  const db = getServiceDb();
+  const rows = await db
+    .select()
+    .from(earningsTable)
+    .where(eq(earningsTable.ticker, ticker))
+    .orderBy(desc(earningsTable.periodEnd))
+    .limit(8);
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Earnings (last 8Q)</CardTitle></CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No earnings history for {ticker} yet. Will populate after the next cron run.
+          </p>
+        ) : (
+          <ol className="space-y-2 text-sm">
+            {rows.map((r) => (
+              <li key={r.periodEnd} className="flex justify-between items-baseline">
+                <span className="text-muted-foreground">{r.periodEnd}</span>
+                <span className="tabular-nums font-medium">{fmtEps(r.epsActual)}</span>
+                {r.reportedDate && (
+                  <span className="text-xs text-muted-foreground">
+                    Reported {fmtDate(r.reportedDate)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Consensus EPS + price reaction land in Slice 1.5 (requires paid estimates API).
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+This is now an async server component — Next.js 14 RSC supports `async` components fine.
+
+- [ ] **Step 2: Verify build**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+pnpm build 2>&1 | tail -10
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+git add app/\(app\)/stock/\[ticker\]/_components/earnings-card.tsx
+git commit -m "feat(ui): EarningsCard with real 8Q EPS from DB"
+```
+
+---
+
+### Task 11.5: Mount Returns/Growth/Valuation/Earnings on the dashboard
+
+**Files:**
+- Modify: `app/(app)/stock/[ticker]/page.tsx`
+
+- [ ] **Step 1: Replace the dashboard layout**
+
+Open `app/(app)/stock/[ticker]/page.tsx` and replace its body with this layout:
+
+```tsx
+// app/(app)/stock/[ticker]/page.tsx
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { requireUserId } from '@/lib/auth/current-user';
+import { getServiceDb } from '@/lib/db/client';
+import { companies } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
+import { FinancialDatasetsProvider } from '@/lib/providers/financial-datasets';
+import { YFinanceProvider } from '@/lib/providers/yfinance';
+import { getRedisCache } from '@/lib/cache/redis';
+import { SnapshotService } from '@/lib/services/snapshot';
+import { PricesService } from '@/lib/services/prices';
+import { FinancialsService } from '@/lib/services/financials';
+import { loadServerEnv } from '@/lib/env';
+import {
+  buildReturnsSeries,
+  buildGrowthSummary,
+  buildValuationSummary
+} from '@/lib/compute/dashboard';
+import { SnapshotCard } from './_components/snapshot-card';
+import { Sparkline } from './_components/sparkline';
+import { ReturnsCard } from './_components/returns-card';
+import { GrowthCard } from './_components/growth-card';
+import { ValuationCard } from './_components/valuation-card';
+import { EarningsCard } from './_components/earnings-card';
+import { NotesEditor } from './_components/notes-editor';
+
+const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
+
+interface PageProps {
+  params: { ticker: string };
+}
+
+export default async function StockPage({ params }: PageProps) {
+  await requireUserId();
+  const ticker = params.ticker.toUpperCase();
+  if (!TICKER_RE.test(ticker)) notFound();
+
+  const db = getServiceDb();
+  const existing = await db.select().from(companies).where(eq(companies.ticker, ticker)).limit(1);
+  if (existing.length === 0) notFound();
+
+  const env = loadServerEnv();
+  const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
+  const yf = new YFinanceProvider();
+  const redis = getRedisCache();
+  const snapshotSvc = new SnapshotService({ db, primary: fd, fallback: yf, redis });
+  const pricesSvc = new PricesService({ db, primary: fd, fallback: yf, redis });
+  const financialsSvc = new FinancialsService({ db, primary: fd, fallback: yf, redis });
+
+  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle] = await Promise.all([
+    snapshotSvc.get(ticker).catch(() => null),
+    pricesSvc.get(ticker, '5Y').catch(() => []),
+    financialsSvc.get(ticker, 'income', 'annual').catch(() => ({ ticker, statementType: 'income' as const, periodType: 'annual' as const, rows: [] })),
+    financialsSvc.get(ticker, 'balance', 'annual').catch(() => ({ ticker, statementType: 'balance' as const, periodType: 'annual' as const, rows: [] })),
+    financialsSvc.get(ticker, 'cash_flow', 'annual').catch(() => ({ ticker, statementType: 'cash_flow' as const, periodType: 'annual' as const, rows: [] }))
+  ]);
+
+  const returnsSeries = buildReturnsSeries(incomeBundle.rows, balanceBundle.rows);
+  const growthSummary = buildGrowthSummary(incomeBundle.rows, cashFlowBundle.rows);
+  const valuationSummary = buildValuationSummary(
+    {
+      pe: snapshot?.pe ?? null,
+      ps: snapshot?.ps ?? null,
+      pb: snapshot?.pb ?? null,
+      evEbitda: snapshot?.evEbitda ?? null,
+      peg: snapshot?.peg ?? null
+    },
+    incomeBundle.rows,
+    prices5Y
+  );
+
+  // Sparkline only needs 1Y; slice from 5Y to avoid an extra query.
+  const oneYearAgoMs = Date.now() - 365 * 24 * 60 * 60 * 1000;
+  const prices1Y = prices5Y.filter((p) => Date.parse(p.date) >= oneYearAgoMs);
+
+  return (
+    <article className="space-y-6">
+      <header className="flex items-baseline justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">{ticker}</h1>
+          <p className="text-sm text-muted-foreground">{existing[0]!.name}</p>
+        </div>
+        <Tabs value="overview" className="hidden sm:block">
+          <TabsList>
+            <TabsTrigger value="overview" asChild>
+              <Link href={`/stock/${ticker}`}>Overview</Link>
+            </TabsTrigger>
+            <TabsTrigger value="financials" asChild>
+              <Link href={`/stock/${ticker}/financials`}>Financials</Link>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle>Snapshot</CardTitle></CardHeader>
+          <CardContent>
+            <SnapshotCard snapshot={snapshot} />
+            <Sparkline data={prices1Y} />
+          </CardContent>
+        </Card>
+        <ValuationCard valuation={valuationSummary} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <GrowthCard growth={growthSummary} />
+        <EarningsCard ticker={ticker} />
+      </div>
+
+      <ReturnsCard series={returnsSeries} />
+
+      <Card>
+        <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+        <CardContent><NotesEditor ticker={ticker} /></CardContent>
+      </Card>
+    </article>
+  );
+}
+```
+
+- [ ] **Step 2: Verify build**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+pnpm build 2>&1 | tail -15
+```
+
+- [ ] **Step 3: Browser smoke test**
+
+`pnpm dev` → `/stock/AAPL` should now show: Snapshot (2 cols) + Valuation (1 col) in row 1; Growth + Earnings (2 cols each) in row 2; ReturnsCard full-width in row 3; Notes at the bottom. Numbers populated from real data.
+
+- [ ] **Step 4: Commit**
+
+```bash
+cd "C:/Users/elinw/Projects/equity-research-workbench"
+git add app/\(app\)/stock/\[ticker\]/page.tsx
+git commit -m "feat(ui): mount Returns, Growth, Valuation, Earnings cards on dashboard"
+```
+
+---
+
 ## Phase 1B — Completion checklist
 
 - [ ] All unit tests pass: `pnpm test`
