@@ -9,6 +9,7 @@ import { getRedisCache } from '@/lib/cache/redis';
 import { loadServerEnv } from '@/lib/env';
 import { WatchlistCard } from './_components/watchlist-card';
 import { EmptyState } from './_components/empty-state';
+import { AddTickerDialog } from './_components/add-ticker-dialog';
 
 async function getWatchlistWithSnapshots(userId: string) {
   const db = getServiceDb();
@@ -36,22 +37,30 @@ export default async function WatchlistPage() {
   const items = await getWatchlistWithSnapshots(userId);
 
   if (items.length === 0) {
-    return <EmptyState />;
+    return (
+      <>
+        <EmptyState />
+        <AddTickerDialog />
+      </>
+    );
   }
 
   return (
-    <section>
-      <header className="mb-6 flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Watchlist</h1>
-        <p className="text-sm text-muted-foreground">{items.length} ticker{items.length === 1 ? '' : 's'}</p>
-      </header>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((item) => (
-          <Link key={item.ticker} href={`/stock/${item.ticker}`}>
-            <WatchlistCard ticker={item.ticker} snapshot={item.snapshot} />
-          </Link>
-        ))}
-      </div>
-    </section>
+    <>
+      <section>
+        <header className="mb-6 flex items-baseline justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">Watchlist</h1>
+          <p className="text-sm text-muted-foreground">{items.length} ticker{items.length === 1 ? '' : 's'}</p>
+        </header>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((item) => (
+            <Link key={item.ticker} href={`/stock/${item.ticker}`}>
+              <WatchlistCard ticker={item.ticker} snapshot={item.snapshot} />
+            </Link>
+          ))}
+        </div>
+      </section>
+      <AddTickerDialog />
+    </>
   );
 }
