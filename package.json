@@ -24,9 +24,13 @@
     "try": "tsx scripts/try-snapshot.ts"
   },
   "dependencies": {
+    "@stackframe/stack": "^2.8.95",
     "@upstash/redis": "^1.38.0",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.3",
     "next": "^14.2.35",
     "pino": "^10.3.1",
+    "postgres": "^3.4.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^3.25.76"
@@ -37,6 +41,8 @@
     "@types/react-dom": "^18.3.7",
     "@vitest/coverage-v8": "^3.2.4",
     "cross-env": "^10.1.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
     "prettier": "^3.8.3",
