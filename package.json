@@ -9,9 +9,9 @@
   "packageManager": "pnpm@11.0.9",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -28,18 +28,19 @@
     "pino": "^10.3.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zod": "^4.4.3"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^22.19.19",
     "@types/react": "^18.3.29",
     "@types/react-dom": "^18.3.7",
-    "@vitest/coverage-v8": "^4.1.7",
-    "eslint": "^10.4.0",
-    "eslint-config-next": "^16.2.6",
+    "@vitest/coverage-v8": "^3.2.4",
+    "cross-env": "^10.1.0",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.35",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.7"
+    "vitest": "^3.2.4"
   }
 }
