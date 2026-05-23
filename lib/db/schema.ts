@@ -1,5 +1,6 @@
 import {
   bigint,
+  bigserial,
   boolean,
   date,
   index,
@@ -7,7 +8,8 @@ import {
   pgTable,
   primaryKey,
   text,
-  timestamp
+  timestamp,
+  uuid
 } from 'drizzle-orm/pg-core';
 
 export const companies = pgTable('companies', {
@@ -105,5 +107,56 @@ export const earnings = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.ticker, t.periodEnd] })
+  })
+);
+
+export const watchlist = pgTable(
+  'watchlist',
+  {
+    // user_id is the Stack Auth user uuid. No FK — Stack Auth users live in
+    // an external service. Orphan cleanup happens via webhook in Slice 4.
+    userId: uuid('user_id').notNull(),
+    ticker: text('ticker')
+      .notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.ticker] }),
+    userAddedIdx: index('watchlist_user_added_idx').on(t.userId, t.addedAt)
+  })
+);
+
+export const notes = pgTable(
+  'notes',
+  {
+    userId: uuid('user_id').notNull(),
+    ticker: text('ticker')
+      .notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    body: text('body').notNull().default(''),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.ticker] })
+  })
+);
+
+export const refreshRuns = pgTable(
+  'refresh_runs',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    ticker: text('ticker')
+      .notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    ok: boolean('ok'),
+    sourceUsed: text('source_used'),
+    error: text('error')
+  },
+  (t) => ({
+    tickerStartedIdx: index('refresh_runs_ticker_started_idx').on(t.ticker, t.startedAt)
   })
 );
