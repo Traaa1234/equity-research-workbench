@@ -10,7 +10,7 @@ The Equity Research Workbench is a full-stack stock research application that ag
 
 The project is decomposed into four slices, each shipped and reviewed before the next is designed:
 
-- **Slice 1 (this document) — Foundation, Snapshot, Financials, Watchlist.** Next.js scaffold, Supabase schema, auth + watchlist + notes, ticker dashboard with snapshot card and 5Y financials charts, 10 seed tickers + "add ticker" flow, Financial Datasets primary + yfinance fallback. No LLM, no filings.
+- **Slice 1 (this document) — Foundation, Snapshot, Financials, Watchlist.** Next.js scaffold, Neon Postgres schema, Stack Auth + watchlist + notes, ticker dashboard with snapshot card and 5Y financials charts, 10 seed tickers + "add ticker" flow, Financial Datasets primary + yfinance fallback. No LLM, no filings.
 - **Slice 2 — EDGAR filing ingestion + per-filing TLDR.** Download/parse/chunk/embed filings, per-section LLM summarization with prompt caching and cost tracking.
 - **Slice 3 — Business intelligence + semantic Q&A.** Competitors, customers, supply chain, risks, moat extraction; pgvector search over filings with citations.
 - **Slice 4 — User layer expansion + ops.** Price alerts, multi-user concerns, admin dashboard, full background ingestion observability, polish (Bloomberg aesthetic, keyboard shortcuts), mobile.
@@ -45,11 +45,12 @@ Single Next.js 14 app, App Router. No separate backend service. All server work 
 
 - **Route handlers** for client-callable endpoints (e.g., `GET /api/tickers/[symbol]/snapshot`).
 - **Server Components and Server Actions** for page-level data fetching on the initial render of `/stock/[ticker]`.
-- **Cron handler** at `app/api/cron/refresh/route.ts`, triggered by Vercel Cron in production. In local dev, `pnpm refresh` runs the same code path against the local DB.
+- **Cron handler** at `app/api/cron/refresh/route.ts`, triggered by Vercel Cron in production. In local dev, `pnpm refresh` runs the same code path against the same cloud Neon database.
 
 External dependencies:
 
-- Supabase (Postgres + Auth) — managed.
+- **Neon Postgres** (managed serverless Postgres). Connection string in `DATABASE_URL`. Migrations applied via `drizzle-kit push` against the dev branch.
+- **Stack Auth** (Neon's first-party auth, free tier). Identity provider; issues JWTs that the app uses to scope DB reads. Server-side `@stackframe/stack` SDK; project ID + publishable/secret keys in env.
 - Upstash Redis — REST client, Edge-runtime compatible.
 - Financial Datasets API — REST; key in `FINANCIAL_DATASETS_API_KEY`.
 - `yfinance` fallback — Python script invoked from the TypeScript adapter. In Slice 1 (local dev only), `lib/providers/yfinance.ts` shells out via `child_process.spawn('python', ['scripts/yfinance_fetch.py', symbol, kind])`, parses JSON from stdout. When the project deploys to Vercel (Slice 1.5+), the same Python file is moved to `app/api/fallback/yfinance/route.py` and the TS adapter switches to an HTTP call — no logic change in the rest of the codebase.
@@ -75,10 +76,7 @@ UI talks to services, never to providers. The service handles cache lookup, fall
 ```
 equity-research-workbench/
 ├── app/
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   ├── signup/page.tsx
-│   │   └── auth/callback/route.ts
+│   ├── handler/[...stack]/page.tsx      # Stack Auth catches /handler/* (signup, login, OAuth callback, account)
 │   ├── (app)/
 │   │   ├── layout.tsx                   # session-gated shell with nav
 │   │   ├── watchlist/page.tsx           # landing page after login
@@ -150,9 +148,9 @@ Module responsibilities:
 | `providers/*`| Speak to one external API; return normalized types     | none internal         |
 | `services/*` | Cache-aware orchestration; pick provider, fall back    | providers, cache, db  |
 | `cache/*`    | Read/write through Redis (hot) and Postgres (cold)     | db                    |
-| `db/*`       | Schema + typed client                                  | Supabase Postgres     |
+| `db/*`       | Schema + typed client                                  | Neon Postgres         |
 | `compute/*`  | Pure financial math; fully unit-tested                 | none                  |
-| `auth/*`     | Supabase session plumbing                              | Supabase Auth         |
+| `auth/*`     | Stack Auth session plumbing + JWT-to-DB binding        | Stack Auth SDK        |
 | `api/*`      | Thin HTTP shells; auth, parse, call service, return    | services              |
 
 **Hard rule:** API route handlers contain no business logic. They authenticate the request, parse inputs, call a service function, and return. The cron handler calls the same service functions.
@@ -227,10 +225,13 @@ Postgres is the durable layer; Redis is a speed lane. On Redis miss, always chec
 
 ## Database schema
 
-Drizzle ORM, Postgres on Supabase. RLS enabled on user-scoped tables.
+Drizzle ORM, Neon Postgres. RLS enabled on user-scoped tables, using JWT claims set per-connection from Stack Auth.
 
 ```sql
--- Identity is Supabase Auth's auth.users — not recreated here.
+-- Identity lives in Stack Auth (external service). We do NOT have a foreign-key
+-- relationship to a users table in this database. The `user_id` column on
+-- `watchlist` and `notes` is the Stack Auth user id (uuid). It is enforced at
+-- the application layer + RLS, not by a database FK.
 
 companies (
   ticker            text primary key,
@@ -301,8 +302,11 @@ earnings (
   primary key (ticker, period_end)
 );
 
+-- user_id is the Stack Auth user uuid. No FK (Stack Auth users live elsewhere).
+-- ON DELETE CASCADE is not possible without a referenced row; instead, a
+-- Stack Auth webhook (Slice 4) can clean up rows when a user is deleted.
 watchlist (
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid not null,
   ticker     text not null references companies(ticker) on delete cascade,
   added_at   timestamptz not null default now(),
   primary key (user_id, ticker)
@@ -310,7 +314,7 @@ watchlist (
 create index on watchlist (user_id, added_at desc);
 
 notes (
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid not null,
   ticker     text not null references companies(ticker) on delete cascade,
   body       text not null default '',
   updated_at timestamptz not null default now(),
@@ -331,21 +335,35 @@ refresh_runs (
 create index on refresh_runs (ticker, started_at desc);
 ```
 
-RLS policies:
+RLS policies use a session-local setting `request.jwt.claim.sub` that the application sets via `SET LOCAL` at the start of each user-scoped DB transaction. The value comes from `stackServerApp.getUser()` server-side. Two database roles:
+
+- `authenticated` — granted to a Neon role used by web requests; subject to RLS.
+- `service_role` — granted to the role used by cron and server-side ingestion; bypasses RLS via `BYPASSRLS` attribute.
+
+Helper function used in policies:
+
+```sql
+create or replace function current_user_id() returns uuid as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+$$ language sql stable;
+```
+
+Policies:
 
 ```sql
 -- User-owned tables: users see only their own rows.
 alter table watchlist enable row level security;
-create policy "own watchlist read"  on watchlist for select using (user_id = auth.uid());
-create policy "own watchlist write" on watchlist for all    using (user_id = auth.uid())
-                                                         with check (user_id = auth.uid());
+create policy "own watchlist read"  on watchlist for select using (user_id = current_user_id());
+create policy "own watchlist write" on watchlist for all    using (user_id = current_user_id())
+                                                         with check (user_id = current_user_id());
 
 alter table notes enable row level security;
-create policy "own notes read"  on notes for select using (user_id = auth.uid());
-create policy "own notes write" on notes for all    using (user_id = auth.uid())
-                                                  with check (user_id = auth.uid());
+create policy "own notes read"  on notes for select using (user_id = current_user_id());
+create policy "own notes write" on notes for all    using (user_id = current_user_id())
+                                                  with check (user_id = current_user_id());
 
--- Reference data: any authenticated user can read; writes go through service-role only.
+-- Reference data: any signed-in user can read; writes happen only via the
+-- service_role connection, which bypasses RLS.
 alter table companies     enable row level security;
 alter table snapshots     enable row level security;
 alter table fundamentals  enable row level security;
@@ -358,16 +376,18 @@ create policy "auth read snapshots"    on snapshots    for select to authenticat
 create policy "auth read fundamentals" on fundamentals for select to authenticated using (true);
 create policy "auth read prices"       on prices       for select to authenticated using (true);
 create policy "auth read earnings"     on earnings     for select to authenticated using (true);
--- refresh_runs intentionally has no SELECT policy for authenticated; only service-role reads it.
--- No INSERT/UPDATE/DELETE policies for any of these tables means writes require the service-role key.
+-- refresh_runs intentionally has no policy for authenticated; only service_role reads it.
+-- No INSERT/UPDATE/DELETE policies means writes require the service_role connection.
 ```
+
+Application binding: every server route that handles an authenticated request must run inside a transaction that begins with `SET LOCAL request.jwt.claim.sub = <user_id>` before any user-scoped query. A helper `withUserContext(userId, fn)` in `lib/db/client.ts` encapsulates this so individual services don't have to remember.
 
 Schema notes:
 
 - The `fundamentals` table uses a tall shape (one row per line item) so Slice 2 and 3 can add line items without migrations.
 - No prices rollup view in Slice 1. The 1Y sparkline and 5Y revenue chart both query small enough ranges that raw rows are fine. Add weekly/monthly materialized views when measured to be slow.
 - `refresh_runs` is overkill for Slice 1 alone but earns its place because the cron handler in Slice 1 grows into the ingestion observability layer in Slices 2-4.
-- No separate `users` table; Supabase Auth's `auth.users` is the source of truth.
+- No `users` table in this database; Stack Auth holds identity. The `user_id` columns are unenforced uuids — application-level checks plus RLS provide safety. A Stack Auth webhook in Slice 4 will clean up orphaned rows on user deletion.
 
 ## Error handling, rate limits, and security
 
@@ -419,14 +439,17 @@ In Slice 1, `scripts/refresh-local.ts` invokes each kind on a developer-triggere
 
 ### Auth and secrets
 
-- Supabase Auth with email+password and Google OAuth in Slice 1. Magic links deferred to Slice 4.
-- Session refresh via `middleware.ts` on every request (Supabase SSR pattern).
-- Server-side data fetches use the user's JWT so RLS applies. Cron and provider calls use the service-role key — server-only, never shipped to the client.
+- Stack Auth with email+password and Google OAuth in Slice 1. Magic links deferred to Slice 4.
+- `@stackframe/stack` SDK with App Router integration; session cookie handled by Stack's middleware.
+- Server-side: every user-scoped route opens a DB transaction and sets `request.jwt.claim.sub` to the Stack user id via the `withUserContext` helper. The transactional connection uses an `authenticated` Postgres role subject to RLS.
+- Cron and provider/ingestion code uses a separate `service_role` Postgres role with `BYPASSRLS` — server-only, never shipped to the client.
 - Env vars documented in `.env.example`:
   ```
-  NEXT_PUBLIC_SUPABASE_URL
-  NEXT_PUBLIC_SUPABASE_ANON_KEY
-  SUPABASE_SERVICE_ROLE_KEY
+  DATABASE_URL                            # Neon connection string (authenticated role)
+  DATABASE_URL_SERVICE_ROLE               # Neon connection string (service_role, BYPASSRLS)
+  NEXT_PUBLIC_STACK_PROJECT_ID
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
+  STACK_SECRET_SERVER_KEY
   FINANCIAL_DATASETS_API_KEY
   UPSTASH_REDIS_REST_URL
   UPSTASH_REDIS_REST_TOKEN
@@ -465,10 +488,10 @@ One test database per CI run. Drizzle migrations applied fresh. Tests seed their
 
 - **Service cache behavior** — Redis miss + Postgres hit returns cached, doesn't call provider. Redis miss + Postgres stale calls provider and writes both. Provider failure + Postgres fresh degrades gracefully to Postgres.
 - **Fallback path** — mock FD to throw `RateLimitError`; assert yfinance is called and persisted row has `source='yfinance'`.
-- **RLS enforcement** — query `watchlist` as user A; cannot see user B's rows. Test users are provisioned via the Supabase admin API in test setup so a real `auth.users` row + JWT exists for each. Without this, `auth.uid()` returns null and RLS policies behave differently than in production. Critical because RLS bugs are silent.
+- **RLS enforcement** — open a transaction as user A (via `withUserContext(userA, ...)`), insert a watchlist row, then open a transaction as user B and assert the row is invisible. The helper sets `request.jwt.claim.sub` for the transaction; the `current_user_id()` function reads it inside RLS policies. Test user ids are just freshly-generated uuids — Stack Auth doesn't need to be involved for RLS tests since the policy only consults the local setting. Critical because RLS bugs are silent.
 - **Cron idempotency** — run the handler twice in a row; assert provider is called once.
 
-Tool: **Vitest** against `supabase start` in CI; same locally via `pnpm test:integration`.
+Tool: **Vitest** against a dedicated Neon test branch in CI; same locally — every developer runs against their own Neon branch (free tier supports many branches).
 
 ### End-to-end — happy paths only
 
@@ -494,8 +517,8 @@ GitHub Actions, one workflow:
 1. `eslint` + `prettier --check`
 2. `tsc --noEmit`
 3. Unit tests (Vitest)
-4. Integration tests (Vitest + local Supabase)
-5. E2E (Playwright, ephemeral preview)
+4. Integration tests (Vitest + ephemeral Neon branch per CI run)
+5. E2E (Playwright, ephemeral Vercel preview backed by a Neon preview branch)
 
 Steps 1–4 on every push. Step 5 on PRs to `main`.
 
@@ -517,6 +540,7 @@ Slice 1 is complete when:
 - Exact Drizzle vs Prisma decision (leaning Drizzle for lighter serverless footprint; final call when scaffolding).
 - Whether to use shadcn's `<DataTable>` for the financials table or hand-roll (depends on column count, freezing, sticky headers).
 - Whether the cron handler shells out to a separate Edge function for FD rate-limit isolation, or stays in the main route handler (defer until we measure cold-start cost).
+- Whether to use Neon's `neon serverless` driver or plain `postgres-js` over TCP. The serverless driver is faster from Vercel Edge but only over HTTP. For Slice 1 (Node-runtime route handlers), `postgres-js` is simpler. Reassess in Phase 1B.
 
 These are implementation-time decisions, not design-time decisions.
 

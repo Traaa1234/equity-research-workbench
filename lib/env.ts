@@ -1,13 +1,28 @@
 import { z } from 'zod';
 
 const ServerEnvSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  // Neon Postgres — two connection strings for two roles.
+  // DATABASE_URL is the authenticated role (subject to RLS); used in user-scoped routes.
+  // DATABASE_URL_SERVICE_ROLE has BYPASSRLS; used by cron, ingestion, and tests.
+  DATABASE_URL: z.string().url(),
+  DATABASE_URL_SERVICE_ROLE: z.string().url(),
+
+  // Stack Auth
+  NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1),
+  STACK_SECRET_SERVER_KEY: z.string().min(1),
+
+  // External data providers
   FINANCIAL_DATASETS_API_KEY: z.string().min(1),
+
+  // Upstash Redis (REST)
   UPSTASH_REDIS_REST_URL: z.string().url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
+
+  // Cron handler shared secret
   CRON_SECRET: z.string().min(16, 'CRON_SECRET must be at least 16 chars'),
+
+  // Python interpreter used by the yfinance subprocess adapter
   PYTHON_BIN: z.string().default('python')
 });
 
