@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { buildReturnsSeries, buildGrowthSummary } from '@/lib/compute/dashboard';
-import type { FundamentalRow } from '@/lib/providers/types';
+import {
+  buildReturnsSeries,
+  buildGrowthSummary,
+  buildValuationSummary
+} from '@/lib/compute/dashboard';
+import type { FundamentalRow, PricePoint } from '@/lib/providers/types';
+
+function price(date: string, close: number): PricePoint {
+  return { date, open: null, high: null, low: null, close, adjClose: close, volume: null };
+}
 
 function row(periodEnd: string, lineItem: string, value: number): FundamentalRow {
   return { periodEnd, lineItem, value, currency: 'USD' };
@@ -74,5 +82,36 @@ describe('buildGrowthSummary', () => {
     const out = buildGrowthSummary(income, []);
     expect(out.revenueCAGR3Y).toBeNull();
     expect(out.revenueCAGR5Y).toBeNull();
+  });
+});
+
+describe('buildValuationSummary', () => {
+  it('computes current P/E and 5Y average P/E from EPS + year-end prices', () => {
+    const income = [
+      row('2024-09-30', 'earnings_per_share', 6.0),
+      row('2023-09-30', 'earnings_per_share', 5.0),
+      row('2022-09-30', 'earnings_per_share', 4.0),
+      row('2021-09-30', 'earnings_per_share', 3.0),
+      row('2020-09-30', 'earnings_per_share', 2.0)
+    ];
+    const prices = [
+      price('2024-09-27', 180),
+      price('2023-09-29', 150),
+      price('2022-09-30', 120),
+      price('2021-09-30', 90),
+      price('2020-09-30', 60)
+    ];
+    const out = buildValuationSummary({ pe: 35, ps: 7.8, pb: 45.2, evEbitda: 22.1, peg: 2.4 }, income, prices);
+    expect(out.currentPE).toBe(35);
+    expect(out.avgPE5Y).toBeCloseTo(30, 0);
+    expect(out.currentPS).toBe(7.8);
+    expect(out.avgPS5Y).toBeNull();
+  });
+
+  it('skips years with missing EPS or no nearby price', () => {
+    const income = [row('2024-09-30', 'earnings_per_share', 6.0)];
+    const prices = [price('2024-09-27', 180)];
+    const out = buildValuationSummary({ pe: 30 }, income, prices);
+    expect(out.avgPE5Y).toBeCloseTo(30);
   });
 });

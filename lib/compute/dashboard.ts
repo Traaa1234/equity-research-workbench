@@ -1,4 +1,4 @@
-import type { FundamentalRow } from '@/lib/providers/types';
+import type { FundamentalRow, PricePoint } from '@/lib/providers/types';
 import { computeROE, computeROA } from '@/lib/compute/returns';
 import { computeCAGR } from '@/lib/compute/growth';
 
@@ -130,5 +130,76 @@ export function buildGrowthSummary(
       valueYearsAgo(cashFlow, 'free_cash_flow', 5),
       5
     )
+  };
+}
+
+export interface CurrentMultiples {
+  pe?: number | null;
+  ps?: number | null;
+  pb?: number | null;
+  evEbitda?: number | null;
+  peg?: number | null;
+}
+
+export interface ValuationSummary {
+  currentPE: number | null;
+  avgPE5Y: number | null;
+  currentPS: number | null;
+  avgPS5Y: number | null;
+  currentPB: number | null;
+  avgPB5Y: number | null;
+  currentEvEbitda: number | null;
+  avgEvEbitda5Y: number | null;
+  currentPEG: number | null;
+}
+
+function findClosestPrice(prices: PricePoint[], target: string): number | null {
+  if (prices.length === 0) return null;
+  const targetMs = Date.parse(target);
+  if (isNaN(targetMs)) return null;
+  let best: PricePoint | null = null;
+  let bestDelta = Infinity;
+  for (const p of prices) {
+    const delta = Math.abs(Date.parse(p.date) - targetMs);
+    if (delta < bestDelta) {
+      best = p;
+      bestDelta = delta;
+    }
+  }
+  return best && bestDelta <= 30 * 24 * 60 * 60 * 1000 ? best.close : null;
+}
+
+export function buildValuationSummary(
+  current: CurrentMultiples,
+  income: FundamentalRow[],
+  prices: PricePoint[]
+): ValuationSummary {
+  const epsByPeriod = income
+    .filter((r) => r.lineItem === 'earnings_per_share' && r.value != null)
+    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))
+    .slice(0, 5);
+
+  const historicalPEs: number[] = [];
+  for (const { periodEnd, value: eps } of epsByPeriod) {
+    if (eps == null || eps <= 0) continue;
+    const p = findClosestPrice(prices, periodEnd);
+    if (p == null) continue;
+    historicalPEs.push(p / eps);
+  }
+  const avgPE5Y =
+    historicalPEs.length > 0
+      ? historicalPEs.reduce((a, b) => a + b, 0) / historicalPEs.length
+      : null;
+
+  return {
+    currentPE: current.pe ?? null,
+    avgPE5Y,
+    currentPS: current.ps ?? null,
+    avgPS5Y: null,
+    currentPB: current.pb ?? null,
+    avgPB5Y: null,
+    currentEvEbitda: current.evEbitda ?? null,
+    avgEvEbitda5Y: null,
+    currentPEG: current.peg ?? null
   };
 }
