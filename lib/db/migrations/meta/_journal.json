@@ -8,6 +8,13 @@
       "when": 1779562359267,
       "tag": "0000_smiling_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779562518702,
+      "tag": "0001_powerful_shaman",
+      "breakpoints": true
     }
   ]
 }
