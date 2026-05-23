@@ -95,6 +95,29 @@ describe('FinancialDatasetsProvider', () => {
       const url = fetchMock.mock.calls[0]![0] as string;
       expect(url).toContain('ticker=AAPL');
     });
+
+    it('handles missing as_of by defaulting to now()', async () => {
+      const fix = {
+        snapshot: {
+          ticker: 'AAPL',
+          market_cap: 3.1e12,
+          latest_price: 195.4,
+          // no as_of, no fifty_two_week_high/low — real FD often omits these
+        }
+      };
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const before = Date.now();
+      const result = await provider.snapshot('AAPL');
+      const after = Date.now();
+
+      expect(result.asOf).toBeInstanceOf(Date);
+      expect(result.asOf.getTime()).toBeGreaterThanOrEqual(before);
+      expect(result.asOf.getTime()).toBeLessThanOrEqual(after + 100);
+      expect(result.week52High).toBeNull();
+      expect(result.week52Low).toBeNull();
+    });
   });
 
   describe('.statements()', () => {

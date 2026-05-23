@@ -74,7 +74,7 @@ export class FinancialDatasetsProvider implements Provider {
       pb: numOrNull(s.price_to_book_ratio),
       evEbitda: numOrNull(s.enterprise_value_to_ebitda_ratio),
       peg: numOrNull(s.peg_ratio),
-      asOf: new Date(s.as_of)
+      asOf: parseDateOrNow(s.as_of)
     };
   }
 
@@ -207,6 +207,14 @@ export class FinancialDatasetsProvider implements Provider {
 
 function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function parseDateOrNow(v: unknown): Date {
+  if (typeof v === 'string' && v) {
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
 }
 
 function sleep(ms: number): Promise<void> {

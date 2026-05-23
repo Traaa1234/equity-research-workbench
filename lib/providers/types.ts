@@ -11,8 +11,7 @@ export class ProviderError extends Error {
 export class ValidationError extends Error {
   readonly kind = 'ValidationError' as const;
 }
-export class UnknownProviderError extends Error {
-  readonly kind = 'UnknownProviderError' as const;
+export class UnknownProviderError extends ProviderError {
 }
 
 export type ProviderName = 'financial_datasets' | 'yfinance';
