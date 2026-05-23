@@ -60,4 +60,23 @@ describe('/api/watchlist', () => {
     const res = await POST(make());
     expect(res.status).toBe(201);
   });
+
+  it('DELETE removes a ticker', async () => {
+    await dbH.db.insert(watchlist).values({ userId: testUserId, ticker: 'AAPL' });
+    const { DELETE } = await import('@/app/api/watchlist/[ticker]/route');
+    const res = await DELETE(new Request('http://localhost/api/watchlist/AAPL', { method: 'DELETE' }), {
+      params: { ticker: 'AAPL' }
+    });
+    expect(res.status).toBe(204);
+    const rows = await dbH.db.select().from(watchlist).where(and(eq(watchlist.userId, testUserId), eq(watchlist.ticker, 'AAPL')));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('DELETE is idempotent (204 even if not present)', async () => {
+    const { DELETE } = await import('@/app/api/watchlist/[ticker]/route');
+    const res = await DELETE(new Request('http://localhost/api/watchlist/AAPL', { method: 'DELETE' }), {
+      params: { ticker: 'AAPL' }
+    });
+    expect(res.status).toBe(204);
+  });
 });
