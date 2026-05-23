@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+.env.local
+.env*.local
+*.log
+.vercel
+.DS_Store
+coverage/
+.vitest-cache/
+supabase/.branches
+supabase/.temp
+__pycache__/
+*.pyc
+.venv/
