@@ -1,7 +1,12 @@
 import { sql } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import type { ServiceDb } from '@/lib/db/client';
-import type { NewSnapshot } from '@/lib/db/types';
+import type {
+  NewSnapshot,
+  NewFundamental,
+  NewPrice,
+  NewEarning
+} from '@/lib/db/types';
 
 type CacheableTable = 'snapshots' | 'fundamentals' | 'prices' | 'earnings';
 
@@ -63,6 +68,68 @@ export async function upsertSnapshot(db: ServiceDb, row: NewSnapshot): Promise<v
         asOf: row.asOf,
         fetchedAt: sql`now()`,
         source: row.source
+      }
+    });
+}
+
+export async function upsertFundamentals(
+  db: ServiceDb,
+  rows: NewFundamental[]
+): Promise<void> {
+  if (rows.length === 0) return;
+  await db
+    .insert(schema.fundamentals)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [
+        schema.fundamentals.ticker,
+        schema.fundamentals.periodEnd,
+        schema.fundamentals.periodType,
+        schema.fundamentals.statementType,
+        schema.fundamentals.lineItem
+      ],
+      set: {
+        value: sql`excluded.value`,
+        currency: sql`excluded.currency`,
+        fetchedAt: sql`now()`,
+        source: sql`excluded.source`
+      }
+    });
+}
+
+export async function upsertPrices(db: ServiceDb, rows: NewPrice[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db
+    .insert(schema.prices)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [schema.prices.ticker, schema.prices.date],
+      set: {
+        open: sql`excluded.open`,
+        high: sql`excluded.high`,
+        low: sql`excluded.low`,
+        close: sql`excluded.close`,
+        adjClose: sql`excluded.adj_close`,
+        volume: sql`excluded.volume`,
+        source: sql`excluded.source`
+      }
+    });
+}
+
+export async function upsertEarnings(db: ServiceDb, rows: NewEarning[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db
+    .insert(schema.earnings)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [schema.earnings.ticker, schema.earnings.periodEnd],
+      set: {
+        reportedDate: sql`excluded.reported_date`,
+        epsActual: sql`excluded.eps_actual`,
+        price1dPct: sql`excluded.price_1d_pct`,
+        price5dPct: sql`excluded.price_5d_pct`,
+        source: sql`excluded.source`,
+        fetchedAt: sql`now()`
       }
     });
 }
