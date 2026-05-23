@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { StackProvider, StackTheme } from '@stackframe/stack';
 import { stackServerApp } from '@/stack';
+import { Toaster } from '@/components/ui/toaster';
 import './globals.css';
 
 export const metadata = {
@@ -13,7 +14,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className="dark">
       <body className="min-h-screen bg-background text-foreground antialiased">
         <StackProvider app={stackServerApp}>
-          <StackTheme>{children}</StackTheme>
+          <StackTheme>
+            {children}
+            <Toaster />
+          </StackTheme>
         </StackProvider>
       </body>
     </html>
