@@ -1,0 +1,1 @@
+export { stackServerApp } from '@/stack';
