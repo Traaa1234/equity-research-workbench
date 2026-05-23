@@ -16,6 +16,9 @@ export default defineConfig({
     hookTimeout: 30_000
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, '.') }
+    alias: {
+      '@': path.resolve(__dirname, '.'),
+      'server-only': path.resolve(__dirname, 'tests/helpers/server-only-stub.ts')
+    }
   }
 });
