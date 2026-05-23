@@ -96,4 +96,55 @@ describe('FinancialDatasetsProvider', () => {
       expect(url).toContain('ticker=AAPL');
     });
   });
+
+  describe('retry behavior', () => {
+    it('retries on RateLimitError and succeeds on second attempt', async () => {
+      vi.useFakeTimers();
+      const fix = loadFixture('fd-company-aapl.json');
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response('', { status: 429 }))
+        .mockResolvedValueOnce(jsonResponse(fix));
+      const provider = new FinancialDatasetsProvider({
+        apiKey: 'k',
+        fetch: fetchMock,
+        retry: { attempts: 3, baseDelayMs: 100 }
+      });
+
+      const promise = provider.company('AAPL');
+      // Advance through the backoff
+      await vi.advanceTimersByTimeAsync(150);
+      const result = await promise;
+      expect(result.ticker).toBe('AAPL');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry on NotFoundError', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 404 }));
+      const provider = new FinancialDatasetsProvider({
+        apiKey: 'k',
+        fetch: fetchMock,
+        retry: { attempts: 3, baseDelayMs: 1 }
+      });
+
+      await expect(provider.company('XXXX')).rejects.toBeInstanceOf(NotFoundError);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('gives up after configured attempts', async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 500 }));
+      const provider = new FinancialDatasetsProvider({
+        apiKey: 'k',
+        fetch: fetchMock,
+        retry: { attempts: 2, baseDelayMs: 10 }
+      });
+
+      const promise = provider.company('AAPL').catch((e) => e);
+      await vi.advanceTimersByTimeAsync(100);
+      const err = await promise;
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
 });
