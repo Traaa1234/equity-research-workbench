@@ -146,6 +146,155 @@ def fetch_prices(ticker: str, years: int) -> dict:
     return {"prices": rows}
 
 
+def get_fx_rate_history(from_ccy: str, to_ccy: str, period_ends: list[str]) -> dict:
+    """Return a dict mapping period_end (YYYY-MM-DD string) -> FX rate.
+       Uses daily history from yfinance and picks the nearest available date for each period_end."""
+    if from_ccy == to_ccy:
+        return {pe: 1.0 for pe in period_ends}
+    if not period_ends:
+        return {}
+    pair = f"{from_ccy}{to_ccy}=X"
+    try:
+        t = yf.Ticker(pair)
+        # Get enough history to cover all period_ends with margin.
+        earliest = min(period_ends)
+        latest = max(period_ends)
+        from_date = datetime.fromisoformat(earliest).date() - timedelta(days=30)
+        to_date = datetime.fromisoformat(latest).date() + timedelta(days=30)
+        hist = t.history(start=from_date.isoformat(), end=to_date.isoformat(), interval="1d")
+        if hist is None or hist.empty:
+            return {pe: None for pe in period_ends}
+        # For each period_end, find the closest available date.
+        result = {}
+        hist_dates = [d.strftime("%Y-%m-%d") for d in hist.index]
+        for pe in period_ends:
+            best = None
+            best_delta = None
+            pe_ms = datetime.fromisoformat(pe).timestamp()
+            for hd, close in zip(hist_dates, hist["Close"]):
+                delta = abs(datetime.fromisoformat(hd).timestamp() - pe_ms)
+                if best_delta is None or delta < best_delta:
+                    best_delta = delta
+                    best = float(close)
+            result[pe] = best
+        return result
+    except Exception:
+        return {pe: None for pe in period_ends}
+
+
+# Mapping from yfinance row index names -> our normalized line_item names.
+# yfinance uses Title-Case names; we use snake_case.
+INCOME_MAP = {
+    "Total Revenue": "revenue",
+    "Cost Of Revenue": "cost_of_revenue",
+    "Gross Profit": "gross_profit",
+    "Operating Expense": "operating_expense",
+    "Operating Income": "operating_income",
+    "Net Income": "net_income",
+    "Net Income Common Stockholders": "net_income",
+    "Basic EPS": "earnings_per_share",
+    "Diluted EPS": "earnings_per_share",
+}
+
+BALANCE_MAP = {
+    "Total Assets": "total_assets",
+    "Total Liabilities Net Minority Interest": "total_liabilities",
+    "Total Liab": "total_liabilities",
+    "Stockholders Equity": "total_equity",
+    "Total Stockholder Equity": "total_equity",
+    "Cash And Cash Equivalents": "cash_and_equivalents",
+    "Cash Cash Equivalents And Short Term Investments": "cash_and_equivalents",
+    "Long Term Debt": "long_term_debt",
+    "Current Debt": "short_term_debt",
+    "Short Long Term Debt": "short_term_debt",
+}
+
+CASH_FLOW_MAP = {
+    "Operating Cash Flow": "operating_cash_flow",
+    "Total Cash From Operating Activities": "operating_cash_flow",
+    "Investing Cash Flow": "investing_cash_flow",
+    "Total Cashflows From Investing Activities": "investing_cash_flow",
+    "Financing Cash Flow": "financing_cash_flow",
+    "Total Cash From Financing Activities": "financing_cash_flow",
+    "Capital Expenditure": "capital_expenditure",
+    "Capital Expenditures": "capital_expenditure",
+    "Free Cash Flow": "free_cash_flow",
+}
+
+
+def _statements_from_df(df, mapping: dict, fx_by_period: dict) -> list:
+    """Pivot a yfinance statements DataFrame (rows=line items, cols=periods) to our row format."""
+    if df is None or df.empty:
+        return []
+    rows = []
+    period_cols = list(df.columns)
+    for yf_name, our_name in mapping.items():
+        if yf_name not in df.index:
+            continue
+        series = df.loc[yf_name]
+        for period_col in period_cols:
+            period_end = period_col.strftime("%Y-%m-%d") if hasattr(period_col, "strftime") else str(period_col)[:10]
+            raw = series.get(period_col)
+            value = num_or_none(raw)
+            if value is None:
+                continue
+            fx = fx_by_period.get(period_end)
+            if fx is not None and fx > 0:
+                value = value * fx
+                rows.append({
+                    "periodEnd": period_end,
+                    "lineItem": our_name,
+                    "value": value,
+                    "currency": "USD"
+                })
+    return rows
+
+
+def fetch_statements(ticker: str, kind: str, period: str) -> dict:
+    """kind: 'income' | 'balance' | 'cash_flow'.   period: 'annual' | 'quarterly'."""
+    t = yf.Ticker(ticker)
+    info = t.info
+    if not info or not info.get("symbol"):
+        fail(f"Ticker not found: {ticker}", "NotFound")
+
+    listing_ccy = info.get("currency", "USD")
+    financial_ccy = info.get("financialCurrency", listing_ccy)
+
+    # Pick the right DataFrame attribute.
+    df_attrs = {
+        ("income", "annual"): "income_stmt",
+        ("income", "quarterly"): "quarterly_income_stmt",
+        ("balance", "annual"): "balance_sheet",
+        ("balance", "quarterly"): "quarterly_balance_sheet",
+        ("cash_flow", "annual"): "cashflow",
+        ("cash_flow", "quarterly"): "quarterly_cashflow",
+    }
+    attr = df_attrs.get((kind, period))
+    if not attr:
+        fail(f"Unknown statements kind/period: {kind}/{period}", "Validation")
+    df = getattr(t, attr, None)
+    if df is None or df.empty:
+        return {"ticker": ticker, "statementType": kind, "periodType": period, "rows": []}
+
+    mappings = {"income": INCOME_MAP, "balance": BALANCE_MAP, "cash_flow": CASH_FLOW_MAP}
+    mapping = mappings[kind]
+
+    # Period_end strings for FX lookup.
+    period_ends = []
+    for col in df.columns:
+        pe = col.strftime("%Y-%m-%d") if hasattr(col, "strftime") else str(col)[:10]
+        period_ends.append(pe)
+    fx_by_period = get_fx_rate_history(financial_ccy, listing_ccy, period_ends)
+
+    rows = _statements_from_df(df, mapping, fx_by_period)
+    return {
+        "ticker": ticker,
+        "statementType": kind,
+        "periodType": period,
+        "rows": rows
+    }
+
+
 def fetch_earnings(ticker: str) -> dict:
     t = yf.Ticker(ticker)
     df = t.earnings_history
@@ -180,6 +329,18 @@ def main():
             print(json.dumps(fetch_prices(ticker, 5)))
         elif kind == "earnings":
             print(json.dumps(fetch_earnings(ticker)))
+        elif kind == "statements_income_annual":
+            print(json.dumps(fetch_statements(ticker, "income", "annual")))
+        elif kind == "statements_income_quarterly":
+            print(json.dumps(fetch_statements(ticker, "income", "quarterly")))
+        elif kind == "statements_balance_annual":
+            print(json.dumps(fetch_statements(ticker, "balance", "annual")))
+        elif kind == "statements_balance_quarterly":
+            print(json.dumps(fetch_statements(ticker, "balance", "quarterly")))
+        elif kind == "statements_cash_flow_annual":
+            print(json.dumps(fetch_statements(ticker, "cash_flow", "annual")))
+        elif kind == "statements_cash_flow_quarterly":
+            print(json.dumps(fetch_statements(ticker, "cash_flow", "quarterly")))
         else:
             fail(f"Unknown kind: {kind}", "Validation")
     except SystemExit:
