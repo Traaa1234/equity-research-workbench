@@ -24,7 +24,18 @@ interface Options {
   timeoutMs?: number;
 }
 
-type Kind = 'company' | 'snapshot' | 'prices_1y' | 'prices_5y' | 'earnings';
+type Kind =
+  | 'company'
+  | 'snapshot'
+  | 'prices_1y'
+  | 'prices_5y'
+  | 'earnings'
+  | 'statements_income_annual'
+  | 'statements_income_quarterly'
+  | 'statements_balance_annual'
+  | 'statements_balance_quarterly'
+  | 'statements_cash_flow_annual'
+  | 'statements_cash_flow_quarterly';
 
 const DEFAULT_SCRIPT = path.resolve(process.cwd(), 'scripts/yfinance_fetch.py');
 
@@ -63,13 +74,19 @@ export class YFinanceProvider implements Provider {
     return (out.earnings ?? []) as EarningsPoint[];
   }
 
-  /** yfinance can't reliably reconstruct full statements; statements stay FD-only. */
   async statements(
-    _ticker: string,
-    _type: StatementType,
-    _period: PeriodType
+    ticker: string,
+    statementType: StatementType,
+    periodType: PeriodType
   ): Promise<StatementBundle> {
-    throw new ProviderError('yfinance does not provide structured statements; use FD');
+    const kind = `statements_${statementType}_${periodType}` as Kind;
+    const out = await this.run(ticker, kind);
+    return {
+      ticker: out.ticker ?? ticker.toUpperCase(),
+      statementType,
+      periodType,
+      rows: Array.isArray(out.rows) ? out.rows : []
+    };
   }
 
   // ----- Subprocess plumbing -----

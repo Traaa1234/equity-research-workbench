@@ -223,10 +223,15 @@ CASH_FLOW_MAP = {
 
 
 def _statements_from_df(df, mapping: dict, fx_by_period: dict) -> list:
-    """Pivot a yfinance statements DataFrame (rows=line items, cols=periods) to our row format."""
+    """Pivot a yfinance statements DataFrame (rows=line items, cols=periods) to our row format.
+       Deduplicates (period_end, line_item) pairs by keeping the first non-null value.
+       Multiple yfinance rows can map to the same line_item (e.g. 'Net Income' and
+       'Net Income Common Stockholders' both -> net_income); only one survives."""
     if df is None or df.empty:
         return []
-    rows = []
+    # Use a dict keyed by (period_end, line_item) so later duplicates don't override
+    # earlier values, and so the DB INSERT doesn't see duplicate keys.
+    seen: dict = {}
     period_cols = list(df.columns)
     for yf_name, our_name in mapping.items():
         if yf_name not in df.index:
@@ -234,6 +239,9 @@ def _statements_from_df(df, mapping: dict, fx_by_period: dict) -> list:
         series = df.loc[yf_name]
         for period_col in period_cols:
             period_end = period_col.strftime("%Y-%m-%d") if hasattr(period_col, "strftime") else str(period_col)[:10]
+            key = (period_end, our_name)
+            if key in seen:
+                continue
             raw = series.get(period_col)
             value = num_or_none(raw)
             if value is None:
@@ -241,13 +249,13 @@ def _statements_from_df(df, mapping: dict, fx_by_period: dict) -> list:
             fx = fx_by_period.get(period_end)
             if fx is not None and fx > 0:
                 value = value * fx
-                rows.append({
+                seen[key] = {
                     "periodEnd": period_end,
                     "lineItem": our_name,
                     "value": value,
                     "currency": "USD"
-                })
-    return rows
+                }
+    return list(seen.values())
 
 
 def fetch_statements(ticker: str, kind: str, period: str) -> dict:

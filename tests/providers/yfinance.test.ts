@@ -71,4 +71,37 @@ describe('YFinanceProvider', () => {
 
     await expect(provider.company('AAPL')).rejects.toBeInstanceOf(ValidationError);
   });
+
+  it('returns normalized statements rows for income annual', async () => {
+    const stdout = JSON.stringify({
+      ticker: 'JD',
+      statementType: 'income',
+      periodType: 'annual',
+      rows: [
+        { periodEnd: '2024-12-31', lineItem: 'revenue', value: 154000000000, currency: 'USD' },
+        { periodEnd: '2024-12-31', lineItem: 'net_income', value: 5000000000, currency: 'USD' }
+      ]
+    });
+    const provider = makeProvider(fakeSpawn(stdout, 0));
+
+    const bundle = await provider.statements('JD', 'income', 'annual');
+    expect(bundle.ticker).toBe('JD');
+    expect(bundle.statementType).toBe('income');
+    expect(bundle.periodType).toBe('annual');
+    expect(bundle.rows).toHaveLength(2);
+    expect(bundle.rows[0]!.value).toBe(154000000000);
+  });
+
+  it('returns empty rows when yfinance has no data', async () => {
+    const stdout = JSON.stringify({
+      ticker: 'XYZ',
+      statementType: 'balance',
+      periodType: 'quarterly',
+      rows: []
+    });
+    const provider = makeProvider(fakeSpawn(stdout, 0));
+
+    const bundle = await provider.statements('XYZ', 'balance', 'quarterly');
+    expect(bundle.rows).toEqual([]);
+  });
 });
