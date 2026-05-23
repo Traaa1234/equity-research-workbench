@@ -11,9 +11,18 @@ import { YFinanceProvider } from '@/lib/providers/yfinance';
 import { getRedisCache } from '@/lib/cache/redis';
 import { SnapshotService } from '@/lib/services/snapshot';
 import { PricesService } from '@/lib/services/prices';
+import { FinancialsService } from '@/lib/services/financials';
 import { loadServerEnv } from '@/lib/env';
+import {
+  buildReturnsSeries,
+  buildGrowthSummary,
+  buildValuationSummary
+} from '@/lib/compute/dashboard';
 import { SnapshotCard } from './_components/snapshot-card';
 import { Sparkline } from './_components/sparkline';
+import { ReturnsCard } from './_components/returns-card';
+import { GrowthCard } from './_components/growth-card';
+import { ValuationCard } from './_components/valuation-card';
 import { EarningsCard } from './_components/earnings-card';
 import { NotesEditor } from './_components/notes-editor';
 
@@ -38,11 +47,32 @@ export default async function StockPage({ params }: PageProps) {
   const redis = getRedisCache();
   const snapshotSvc = new SnapshotService({ db, primary: fd, fallback: yf, redis });
   const pricesSvc = new PricesService({ db, primary: fd, fallback: yf, redis });
+  const financialsSvc = new FinancialsService({ db, primary: fd, fallback: yf, redis });
 
-  const [snapshot, prices1Y] = await Promise.all([
+  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle] = await Promise.all([
     snapshotSvc.get(ticker).catch(() => null),
-    pricesSvc.get(ticker, '1Y').catch(() => [])
+    pricesSvc.get(ticker, '5Y').catch(() => []),
+    financialsSvc.get(ticker, 'income', 'annual').catch(() => ({ ticker, statementType: 'income' as const, periodType: 'annual' as const, rows: [] })),
+    financialsSvc.get(ticker, 'balance', 'annual').catch(() => ({ ticker, statementType: 'balance' as const, periodType: 'annual' as const, rows: [] })),
+    financialsSvc.get(ticker, 'cash_flow', 'annual').catch(() => ({ ticker, statementType: 'cash_flow' as const, periodType: 'annual' as const, rows: [] }))
   ]);
+
+  const returnsSeries = buildReturnsSeries(incomeBundle.rows, balanceBundle.rows);
+  const growthSummary = buildGrowthSummary(incomeBundle.rows, cashFlowBundle.rows);
+  const valuationSummary = buildValuationSummary(
+    {
+      pe: snapshot?.pe ?? null,
+      ps: snapshot?.ps ?? null,
+      pb: snapshot?.pb ?? null,
+      evEbitda: snapshot?.evEbitda ?? null,
+      peg: snapshot?.peg ?? null
+    },
+    incomeBundle.rows,
+    prices5Y
+  );
+
+  const oneYearAgoMs = Date.now() - 365 * 24 * 60 * 60 * 1000;
+  const prices1Y = prices5Y.filter((p) => Date.parse(p.date) >= oneYearAgoMs);
 
   return (
     <article className="space-y-6">
@@ -65,25 +95,25 @@ export default async function StockPage({ params }: PageProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Snapshot</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Snapshot</CardTitle></CardHeader>
           <CardContent>
             <SnapshotCard snapshot={snapshot} />
             <Sparkline data={prices1Y} />
           </CardContent>
         </Card>
+        <ValuationCard valuation={valuationSummary} />
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <GrowthCard growth={growthSummary} />
         <EarningsCard ticker={ticker} />
       </div>
 
+      <ReturnsCard series={returnsSeries} />
+
       <Card>
-        <CardHeader>
-          <CardTitle>Notes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <NotesEditor ticker={ticker} />
-        </CardContent>
+        <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+        <CardContent><NotesEditor ticker={ticker} /></CardContent>
       </Card>
     </article>
   );
