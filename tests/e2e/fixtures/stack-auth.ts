@@ -35,8 +35,13 @@
  */
 
 import { test as base, type BrowserContext } from '@playwright/test';
-import { stackServerApp } from '@/stack';
 import { loadServerEnv } from '@/lib/env';
+// NOTE: `@/stack` is imported lazily inside the `authedContext` fixture (not at
+// module top-level) because `@stackframe/stack` transitively imports
+// `next/navigation` without a `.js` extension. Raw Node ESM (which Playwright
+// uses for test files) rejects extensionless bare specifiers from
+// pnpm-isolated packages. Deferring the import means tests that don't use
+// `authedContext` can still load, and skipped authed tests don't pay the cost.
 
 interface Fixtures {
   /** Synthetic test email, unique per worker/test. */
@@ -80,6 +85,9 @@ export const test = base.extend<Fixtures>({
     const env = loadServerEnv();
     const password = generatePassword();
     const url = new URL(baseURL ?? 'http://localhost:3000');
+
+    // Lazy import — see note at top of file.
+    const { stackServerApp } = await import('@/stack');
 
     // 1. Provision the user (verified so it skips the email-verification gate).
     const user = await stackServerApp.createUser({

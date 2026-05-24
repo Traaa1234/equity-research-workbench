@@ -63,6 +63,7 @@
     "eslint-config-next": "^14.2.35",
     "postcss": "^8.5.15",
     "prettier": "^3.8.3",
+    "server-only": "^0.0.1",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.22.3",
