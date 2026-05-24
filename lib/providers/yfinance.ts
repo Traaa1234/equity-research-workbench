@@ -22,6 +22,12 @@ interface Options {
   scriptPath?: string;
   spawn?: typeof nodeSpawn;
   timeoutMs?: number;
+  // Force HTTP mode (Vercel Python function). Defaults to true on Vercel runtime (VERCEL=1).
+  useHttp?: boolean;
+  // Override the HTTP endpoint. Defaults to the Vercel deploy URL + /api/fallback/yfinance.
+  httpEndpoint?: string;
+  // HTTP client (defaults to global fetch); injectable for tests.
+  fetch?: typeof fetch;
 }
 
 type Kind =
@@ -39,18 +45,30 @@ type Kind =
 
 const DEFAULT_SCRIPT = path.resolve(process.cwd(), 'scripts/yfinance_fetch.py');
 
+function defaultHttpEndpoint(): string {
+  const vercelUrl = process.env.VERCEL_URL;
+  const base = vercelUrl ? `https://${vercelUrl}` : 'http://localhost:3000';
+  return `${base}/api/fallback/yfinance`;
+}
+
 export class YFinanceProvider implements Provider {
   readonly name: ProviderName = 'yfinance';
   private readonly pythonBin: string;
   private readonly scriptPath: string;
   private readonly spawnImpl: typeof nodeSpawn;
   private readonly timeoutMs: number;
+  private readonly useHttp: boolean;
+  private readonly httpEndpoint: string;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(opts: Options = {}) {
     this.pythonBin = opts.pythonBin ?? process.env.PYTHON_BIN ?? 'python';
     this.scriptPath = opts.scriptPath ?? DEFAULT_SCRIPT;
     this.spawnImpl = opts.spawn ?? nodeSpawn;
     this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.useHttp = opts.useHttp ?? (process.env.VERCEL === '1');
+    this.httpEndpoint = opts.httpEndpoint ?? defaultHttpEndpoint();
+    this.fetchImpl = opts.fetch ?? fetch;
   }
 
   async company(ticker: string): Promise<CompanyData> {
@@ -89,9 +107,32 @@ export class YFinanceProvider implements Provider {
     };
   }
 
-  // ----- Subprocess plumbing -----
+  // ----- Dispatch -----
 
   private run(ticker: string, kind: Kind): Promise<any> {
+    return this.useHttp ? this.runHttp(ticker, kind) : this.runSubprocess(ticker, kind);
+  }
+
+  private async runHttp(ticker: string, kind: Kind): Promise<any> {
+    const url = `${this.httpEndpoint}?ticker=${encodeURIComponent(ticker.toUpperCase())}&kind=${encodeURIComponent(kind)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(url, { signal: ctrl.signal });
+      const body = (await res.json().catch(() => null)) as { error?: string; kind?: string } | null;
+      if (res.ok) {
+        return body;
+      }
+      if (!body) {
+        throw new UnknownProviderError(`yfinance HTTP ${res.status}: empty body`);
+      }
+      throw toTypedError(body);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private runSubprocess(ticker: string, kind: Kind): Promise<any> {
     return new Promise((resolve, reject) => {
       const proc = this.spawnImpl(
         this.pythonBin,
