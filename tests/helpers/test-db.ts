@@ -5,22 +5,18 @@ import { randomUUID } from 'node:crypto';
 import * as schema from '@/lib/db/schema';
 
 /**
- * Resolve the service-role URL for tests. Must be a DEDICATED Neon test branch —
- * we refuse to run tests against the production branch because resetDb() truncates
- * all app tables.
+ * Resolve the service-role URL for tests. Must be a DEDICATED Neon test branch.
+ * tests/setup.ts also overrides DATABASE_URL_SERVICE_ROLE to point at the test
+ * branch, and runs a safety check (prod URL must differ from test URL) BEFORE
+ * the override. So by the time tests run, both DATABASE_URL_SERVICE_ROLE and
+ * DATABASE_URL_TEST_SERVICE_ROLE point to the test branch.
  */
 function requireTestServiceUrl(): string {
   const url = process.env.DATABASE_URL_TEST_SERVICE_ROLE;
   if (!url) {
     throw new Error(
       'DATABASE_URL_TEST_SERVICE_ROLE required for integration tests.\n' +
-        'Set it to your Neon TEST branch connection string in .env.local.\n' +
-        'Tests are NOT permitted to run against the production branch (DATABASE_URL_SERVICE_ROLE).'
-    );
-  }
-  if (url === process.env.DATABASE_URL_SERVICE_ROLE) {
-    throw new Error(
-      'Refusing to run tests: DATABASE_URL_TEST_SERVICE_ROLE matches DATABASE_URL_SERVICE_ROLE (would wipe prod).'
+        'Set it to your Neon TEST branch connection string in .env.local.'
     );
   }
   return url;
@@ -29,11 +25,6 @@ function requireTestServiceUrl(): string {
 function requireTestAuthUrl(): string {
   const url = process.env.DATABASE_URL_TEST;
   if (!url) throw new Error('DATABASE_URL_TEST required for integration tests (Neon test branch)');
-  if (url === process.env.DATABASE_URL) {
-    throw new Error(
-      'Refusing to run tests: DATABASE_URL_TEST matches DATABASE_URL (would expose prod to tests).'
-    );
-  }
   return url;
 }
 
