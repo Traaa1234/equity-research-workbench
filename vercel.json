@@ -5,12 +5,8 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "crons": [
     {
-      "path": "/api/cron/refresh?kind=prices",
-      "schedule": "*/30 14-21 * * 1-5"
-    },
-    {
       "path": "/api/cron/refresh?kind=snapshot",
-      "schedule": "0 14,18,21 * * 1-5"
+      "schedule": "30 21 * * *"
     },
     {
       "path": "/api/cron/refresh?kind=fundamentals",
