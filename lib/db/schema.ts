@@ -4,11 +4,13 @@ import {
   boolean,
   date,
   index,
+  integer,
   numeric,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid
 } from 'drizzle-orm/pg-core';
 
@@ -158,5 +160,47 @@ export const refreshRuns = pgTable(
   },
   (t) => ({
     tickerStartedIdx: index('refresh_runs_ticker_started_idx').on(t.ticker, t.startedAt)
+  })
+);
+
+export const filings = pgTable(
+  'filings',
+  {
+    accessionNo: text('accession_no').primaryKey(),
+    ticker: text('ticker')
+      .notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    cik: text('cik').notNull(),
+    formType: text('form_type').notNull(),
+    filingDate: date('filing_date').notNull(),
+    periodEnd: date('period_end'),
+    primaryDocUrl: text('primary_doc_url').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    parsedAt: timestamp('parsed_at', { withTimezone: true }),
+    source: text('source').notNull().default('sec_edgar')
+  },
+  (t) => ({
+    tickerDateIdx: index('filings_ticker_date_idx').on(t.ticker, t.filingDate),
+    tickerFormDateIdx: index('filings_ticker_form_date_idx').on(t.ticker, t.formType, t.filingDate)
+  })
+);
+
+export const filingChunks = pgTable(
+  'filing_chunks',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    filingId: text('filing_id')
+      .notNull()
+      .references(() => filings.accessionNo, { onDelete: 'cascade' }),
+    sectionKey: text('section_key').notNull(),
+    sectionTitle: text('section_title').notNull(),
+    text: text('text').notNull(),
+    charCount: integer('char_count').notNull(),
+    charOffsetStart: integer('char_offset_start'),
+    charOffsetEnd: integer('char_offset_end')
+  },
+  (t) => ({
+    filingSectionUniq: uniqueIndex('filing_chunks_filing_section_uniq').on(t.filingId, t.sectionKey),
+    filingIdx: index('filing_chunks_filing_idx').on(t.filingId)
   })
 );

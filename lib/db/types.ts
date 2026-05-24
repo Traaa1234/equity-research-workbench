@@ -6,7 +6,9 @@ import type {
   earnings,
   watchlist,
   notes,
-  refreshRuns
+  refreshRuns,
+  filings,
+  filingChunks
 } from './schema';
 
 export type Company       = typeof companies.$inferSelect;
@@ -25,3 +27,7 @@ export type Note          = typeof notes.$inferSelect;
 export type NewNote       = typeof notes.$inferInsert;
 export type RefreshRun    = typeof refreshRuns.$inferSelect;
 export type NewRefreshRun = typeof refreshRuns.$inferInsert;
+export type Filing        = typeof filings.$inferSelect;
+export type NewFiling     = typeof filings.$inferInsert;
+export type FilingChunk   = typeof filingChunks.$inferSelect;
+export type NewFilingChunk = typeof filingChunks.$inferInsert;
