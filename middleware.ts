@@ -2,7 +2,7 @@ import { stackServerApp } from '@/stack';
 import { NextResponse, type NextRequest } from 'next/server';
 
 const PROTECTED_PREFIXES = ['/watchlist', '/stock', '/api'];
-const PUBLIC_API_PREFIXES = ['/api/health', '/api/cron'];
+const PUBLIC_API_PREFIXES = ['/api/health', '/api/cron', '/api/fallback'];
 
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
