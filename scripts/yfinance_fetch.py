@@ -84,16 +84,14 @@ def fetch_snapshot(ticker: str) -> dict:
     ps_raw = num_or_none(info.get("priceToSalesTrailing12Months"))
     pb_raw = num_or_none(info.get("priceToBook"))
 
-    # Currency-correct P/S and P/B when financial currency differs from listing currency.
-    # yfinance returns market_cap in listing currency but revenue/book in financial currency,
-    # so its pre-computed P/S and P/B are USD/<other>=garbage. Recompute using FX.
+    # Currency-correct P/S when financial currency differs from listing currency.
+    # yfinance returns market_cap in listing currency but revenue in financial currency,
+    # so its pre-computed P/S is USD/<other>=garbage. Recompute using FX.
     ps = ps_raw
-    pb = pb_raw
+    fx = None
     if listing_ccy != financial_ccy:
         fx = get_fx_rate_spot(financial_ccy, listing_ccy)
         revenue_fc = num_or_none(info.get("totalRevenue"))
-        book_value_fc = num_or_none(info.get("bookValue"))  # per-share
-        shares = num_or_none(info.get("sharesOutstanding"))
 
         if fx and market_cap and revenue_fc and revenue_fc > 0:
             revenue_lc = revenue_fc * fx
@@ -101,12 +99,38 @@ def fetch_snapshot(ticker: str) -> dict:
         else:
             ps = None  # honest null rather than garbage
 
-        if fx and market_cap and book_value_fc and shares and book_value_fc > 0:
-            book_value_total_fc = book_value_fc * shares
-            book_value_total_lc = book_value_total_fc * fx
-            pb = market_cap / book_value_total_lc
-        else:
-            pb = None
+    # P/B: derive from balance sheet total_equity (unambiguous, no share-class issues).
+    # Total equity is in financial currency; we convert to listing currency with FX.
+    # This replaces the prior per-share calc which incorrectly assumed info.bookValue
+    # was in financial currency (it's actually in listing currency), causing double-FX.
+    pb = None
+    try:
+        bs = t.balance_sheet
+        if bs is not None and not bs.empty:
+            equity_keys = [
+                "Stockholders Equity",
+                "Total Stockholder Equity",
+                "Total Equity Gross Minority Interest",
+                "Common Stock Equity",
+            ]
+            equity_fc = None
+            for key in equity_keys:
+                if key in bs.index:
+                    val = bs.loc[key].iloc[0]  # most recent period is leftmost column
+                    equity_fc = num_or_none(val)
+                    if equity_fc is not None and equity_fc > 0:
+                        break
+            if equity_fc and equity_fc > 0 and market_cap:
+                effective_fx = fx if fx is not None else 1.0
+                equity_lc = equity_fc * effective_fx
+                pb = market_cap / equity_lc
+    except Exception:
+        pb = None
+
+    # Fallback: if balance sheet didn't work and currencies match, trust yfinance's pb.
+    # If currencies differ and we have no balance sheet, leave as null (honest).
+    if pb is None and listing_ccy == financial_ccy:
+        pb = pb_raw
 
     return {
         "ticker": ticker,
