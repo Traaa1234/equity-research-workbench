@@ -185,6 +185,11 @@ export const filings = pgTable(
   })
 );
 
+// One chunk per (filing, section_key) by design — sections (item_1_business,
+// item_7_mdna, etc.) are extracted whole, not sub-chunked. The unique index
+// enables idempotent re-ingestion via .onConflictDoNothing(). If Slice 2C
+// embeddings require sub-section chunks, drop the unique index and add a
+// chunk_index column to make (filing_id, section_key, chunk_index) unique.
 export const filingChunks = pgTable(
   'filing_chunks',
   {
