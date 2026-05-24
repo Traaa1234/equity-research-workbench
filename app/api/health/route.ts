@@ -54,11 +54,10 @@ async function checkFinancialDatasets(): Promise<ComponentStatus> {
       2000,
       'financialDatasets'
     );
-    return {
-      ok: res.ok,
-      latencyMs: Date.now() - start,
-      error: res.ok ? undefined : `status ${res.status}`
-    };
+    if (res.ok) {
+      return { ok: true, latencyMs: Date.now() - start };
+    }
+    return { ok: false, latencyMs: Date.now() - start, error: `status ${res.status}` };
   } catch (err) {
     return { ok: false, latencyMs: Date.now() - start, error: String(err).slice(0, 200) };
   }
