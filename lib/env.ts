@@ -23,7 +23,11 @@ const ServerEnvSchema = z.object({
   CRON_SECRET: z.string().min(16, 'CRON_SECRET must be at least 16 chars'),
 
   // Python interpreter used by the yfinance subprocess adapter
-  PYTHON_BIN: z.string().default('python')
+  PYTHON_BIN: z.string().default('python'),
+
+  // Neon test branch — required by integration tests, optional in production.
+  DATABASE_URL_TEST: z.string().url().optional(),
+  DATABASE_URL_TEST_SERVICE_ROLE: z.string().url().optional()
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;
