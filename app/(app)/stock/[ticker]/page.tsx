@@ -89,6 +89,9 @@ export default async function StockPage({ params }: PageProps) {
             <TabsTrigger value="financials" asChild>
               <Link href={`/stock/${ticker}/financials`}>Financials</Link>
             </TabsTrigger>
+            <TabsTrigger value="filings" asChild>
+              <Link href={`/stock/${ticker}/filings`}>Filings</Link>
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </header>
