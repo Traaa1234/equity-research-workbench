@@ -183,16 +183,22 @@ def extract_sections(text: str, form_type: str) -> list[dict]:
             'char_offset_start': 0,
             'char_offset_end': len(text)
         }]
-    # Sort by offset; collapse duplicate keys (keep earliest)
+    # Sort hits by offset (ascending), then dedupe by section_key keeping the
+    # LAST occurrence. Rationale: every SEC filing starts with a Table of
+    # Contents that repeats each Item header on its own line — those entries
+    # match the regex but aren't the real sections. The real section headers
+    # always appear later in the document body. Keeping the last match
+    # naturally skips the ToC.
     hits.sort(key=lambda h: h[0])
     seen = set()
     deduped = []
-    for h in hits:
+    for h in reversed(hits):
         if h[1] in seen:
             continue
         seen.add(h[1])
         deduped.append(h)
-    # Re-sort by offset (the dedupe preserved insertion order but keys could be out of position)
+    # deduped is now in reverse offset order; the next `deduped.sort(...)` call
+    # below restores ascending offset order before building sections.
     deduped.sort(key=lambda h: h[0])
     # Build sections: from this hit's offset to next hit's offset (or end of text)
     sections = []
