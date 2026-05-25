@@ -94,4 +94,34 @@ describe('/api/tickers/[symbol]/filings', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('GET section text returns the chunk text', async () => {
+    await dbH.db.insert(companies).values({ ticker: 'AAPL', name: 'Apple' });
+    await dbH.db.insert(filings).values({
+      accessionNo: '0000320193-24-000123', ticker: 'AAPL', cik: '0000320193',
+      formType: '10-K', filingDate: '2024-11-01', primaryDocUrl: 'https://x'
+    });
+    const { filingChunks } = await import('@/lib/db/schema');
+    await dbH.db.insert(filingChunks).values({
+      filingId: '0000320193-24-000123', sectionKey: 'item_1_business',
+      sectionTitle: 'Business', text: 'Apple does things.', charCount: 18
+    });
+    const { GET } = await import('@/app/api/tickers/[symbol]/filings/[accession]/sections/[sectionKey]/route');
+    const res = await GET(
+      new Request('http://localhost/api/tickers/AAPL/filings/0000320193-24-000123/sections/item_1_business'),
+      { params: { symbol: 'AAPL', accession: '0000320193-24-000123', sectionKey: 'item_1_business' } }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.text).toBe('Apple does things.');
+  });
+
+  it('GET section text returns 404 when section missing', async () => {
+    const { GET } = await import('@/app/api/tickers/[symbol]/filings/[accession]/sections/[sectionKey]/route');
+    const res = await GET(
+      new Request('http://localhost/api/tickers/AAPL/filings/9999999999-99-999999/sections/nope'),
+      { params: { symbol: 'AAPL', accession: '9999999999-99-999999', sectionKey: 'nope' } }
+    );
+    expect(res.status).toBe(404);
+  });
 });
