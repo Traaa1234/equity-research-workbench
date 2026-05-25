@@ -88,3 +88,38 @@ export interface Provider {
   prices(ticker: string, range: '1Y' | '5Y'): Promise<PricePoint[]>;
   earnings(ticker: string, count: number): Promise<EarningsPoint[]>;
 }
+
+// SEC EDGAR provider types — used by SecEdgarProvider.
+export interface SecFilingMeta {
+  accessionNo: string;
+  formType: '10-K' | '10-Q' | string; // string for forward compat (8-K etc.)
+  filingDate: string;                  // ISO date YYYY-MM-DD
+  periodEnd: string | null;
+  primaryDocUrl: string;
+}
+
+export interface SecFilingsList {
+  cik: string;
+  filings: SecFilingMeta[];
+}
+
+export interface SecSection {
+  section_key: string;
+  section_title: string;
+  text: string;
+  char_offset_start: number;
+  char_offset_end: number;
+}
+
+export interface SecFilingFull {
+  formType: string;
+  primaryDocUrl: string;
+  sections: SecSection[];
+  totalChars: number;
+}
+
+export interface SecEdgarProvider {
+  resolveCik(ticker: string): Promise<string>;
+  listFilings(cik: string, forms: string[], yearsBack: number): Promise<SecFilingsList>;
+  fetchFiling(primaryDocUrl: string, formType: string): Promise<SecFilingFull>;
+}
