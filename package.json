@@ -23,7 +23,8 @@
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "seed": "tsx scripts/seed.ts",
-    "try": "tsx scripts/try-snapshot.ts"
+    "try": "tsx scripts/try-snapshot.ts",
+    "try-filings": "tsx scripts/try-filings.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
