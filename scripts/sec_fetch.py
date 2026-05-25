@@ -126,9 +126,12 @@ SECTION_PATTERNS_10K = [
 ]
 
 SECTION_PATTERNS_10Q = [
-    ('part1_item1_financial_statements', re.compile(r'^part\s+i\W+item\s+1\.?\s+financial\s+statements', re.I | re.M)),
-    ('part1_item2_mdna',                 re.compile(r'^part\s+i\W+item\s+2\.?\s+management.?s\s+discussion', re.I | re.M)),
-    ('part2_item1a_risk_factor_updates', re.compile(r'^part\s+ii\W+item\s+1a\.?\s+risk\s+factors', re.I | re.M)),
+    # 10-Q sections are matched on their Item header directly. The Part prefix
+    # is implied by document order (Part I items come first). Standalone Item
+    # headers like "Item 1. Financial Statements" are unambiguous in 10-Qs.
+    ('part1_item1_financial_statements', re.compile(r'^item\s+1\.?\s+financial\s+statements', re.I | re.M)),
+    ('part1_item2_mdna',                 re.compile(r'^item\s+2\.?\s+management.?s\s+discussion', re.I | re.M)),
+    ('part2_item1a_risk_factor_updates', re.compile(r'^item\s+1a\.?\s+risk\s+factors', re.I | re.M)),
 ]
 
 SECTION_TITLES = {
