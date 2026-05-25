@@ -1,0 +1,28 @@
+{
+  "formType": "10-K",
+  "primaryDocUrl": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm",
+  "totalChars": 250000,
+  "sections": [
+    {
+      "section_key": "item_1_business",
+      "section_title": "Business",
+      "text": "Item 1. Business\n\nApple Inc. designs, manufactures...",
+      "char_offset_start": 1200,
+      "char_offset_end": 45000
+    },
+    {
+      "section_key": "item_1a_risk_factors",
+      "section_title": "Risk Factors",
+      "text": "Item 1A. Risk Factors\n\nThe Company's business...",
+      "char_offset_start": 45001,
+      "char_offset_end": 95000
+    },
+    {
+      "section_key": "item_7_mdna",
+      "section_title": "Management's Discussion and Analysis",
+      "text": "Item 7. Management's Discussion and Analysis...",
+      "char_offset_start": 120000,
+      "char_offset_end": 180000
+    }
+  ]
+}

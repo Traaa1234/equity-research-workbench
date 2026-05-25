@@ -1,0 +1,19 @@
+{
+  "cik": "0000320193",
+  "filings": [
+    {
+      "accessionNo": "0000320193-24-000123",
+      "formType": "10-K",
+      "filingDate": "2024-11-01",
+      "periodEnd": "2024-09-28",
+      "primaryDocUrl": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm"
+    },
+    {
+      "accessionNo": "0000320193-24-000080",
+      "formType": "10-Q",
+      "filingDate": "2024-08-02",
+      "periodEnd": "2024-06-29",
+      "primaryDocUrl": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000080/aapl-20240629.htm"
+    }
+  ]
+}
