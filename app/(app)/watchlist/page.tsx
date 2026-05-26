@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { requireUserId } from '@/lib/auth/current-user';
 import { getServiceDb } from '@/lib/db/client';
@@ -10,6 +11,9 @@ import { loadServerEnv } from '@/lib/env';
 import { WatchlistCard } from './_components/watchlist-card';
 import { EmptyState } from './_components/empty-state';
 import { AddTickerDialog } from './_components/add-ticker-dialog';
+import { SearchBar } from './_components/search-bar';
+import { SearchResults } from './_components/search-results';
+import { SearchSkeleton } from './_components/search-skeleton';
 
 async function getWatchlistWithSnapshots(userId: string) {
   const db = getServiceDb();
@@ -32,13 +36,28 @@ async function getWatchlistWithSnapshots(userId: string) {
   return enriched;
 }
 
-export default async function WatchlistPage() {
+interface PageProps {
+  searchParams: { q?: string };
+}
+
+export default async function WatchlistPage({ searchParams }: PageProps) {
   const userId = await requireUserId();
   const items = await getWatchlistWithSnapshots(userId);
 
   if (items.length === 0) {
     return (
       <>
+        <div className="space-y-3">
+          <SearchBar />
+          <p className="text-xs text-muted-foreground">
+            Examples: &quot;China tariff exposure&quot;, &quot;AI infrastructure spending&quot;, &quot;customer concentration risk&quot;
+          </p>
+          {searchParams.q && (
+            <Suspense fallback={<SearchSkeleton />}>
+              <SearchResults q={searchParams.q} />
+            </Suspense>
+          )}
+        </div>
         <EmptyState />
         <AddTickerDialog />
       </>
@@ -52,6 +71,17 @@ export default async function WatchlistPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Watchlist</h1>
           <p className="text-sm text-muted-foreground">{items.length} ticker{items.length === 1 ? '' : 's'}</p>
         </header>
+        <div className="space-y-3">
+          <SearchBar />
+          <p className="text-xs text-muted-foreground">
+            Examples: &quot;China tariff exposure&quot;, &quot;AI infrastructure spending&quot;, &quot;customer concentration risk&quot;
+          </p>
+          {searchParams.q && (
+            <Suspense fallback={<SearchSkeleton />}>
+              <SearchResults q={searchParams.q} />
+            </Suspense>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((item) => (
             <Link key={item.ticker} href={`/stock/${item.ticker}`}>
