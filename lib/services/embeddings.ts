@@ -7,7 +7,10 @@ import { FilingsService } from './filings';
 import { subChunk } from './chunking';
 
 export const CURRENT_EMBED_MODEL = 'text-embedding-v3';
-const BATCH_SIZE = 25;
+// DashScope text-embedding-v3 caps batches at 10 texts per /embeddings call
+// (returns InternalError.Algo.InvalidParameter for batches >10). The spec
+// originally listed 25 based on an older docs version — corrected here.
+const BATCH_SIZE = 10;
 const TARGET_TOKENS = 500;
 const OVERLAP_TOKENS = 50;
 
