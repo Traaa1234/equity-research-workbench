@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-test-123",
+  "object": "chat.completion",
+  "created": 1716595200,
+  "model": "qwen-plus",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "## What they do\nApple designs and sells consumer electronics.\n\n## This period's highlights\n- Services revenue +13% to $96B\n\n## Key risks\n- China supply concentration\n\n## Bottom line\nServices growth offsets iPhone plateau."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 52000,
+    "completion_tokens": 410,
+    "total_tokens": 52410
+  }
+}

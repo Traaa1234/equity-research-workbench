@@ -34,7 +34,8 @@ export class QwenProviderImpl implements QwenProvider {
     const clientConfig: any = {
       apiKey,
       baseURL: opts.baseUrl ?? DEFAULT_BASE_URL,
-      timeout: this.timeoutMs
+      timeout: this.timeoutMs,
+      maxRetries: 0
     };
     if (opts.fetch) clientConfig.fetch = opts.fetch;
     this.client = new OpenAI(clientConfig);
