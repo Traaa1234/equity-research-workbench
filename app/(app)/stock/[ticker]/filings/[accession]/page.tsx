@@ -1,11 +1,14 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { requireUserId } from '@/lib/auth/current-user';
 import { getServiceDb } from '@/lib/db/client';
 import { FilingsService } from '@/lib/services/filings';
 import { SecEdgarProviderImpl } from '@/lib/providers/sec-edgar';
 import { SectionNav } from './_components/section-nav';
+import { FilingBriefing } from './_components/filing-briefing';
+import { BriefingSkeleton } from './_components/briefing-skeleton';
 
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 const ACCESSION_RE = /^\d{10}-\d{2}-\d{6}$/;
@@ -50,6 +53,10 @@ export default async function FilingPage({ params }: PageProps) {
           </a>
         </p>
       </header>
+
+      <Suspense fallback={<BriefingSkeleton />}>
+        <FilingBriefing ticker={ticker} accession={filing.accessionNo} />
+      </Suspense>
 
       {sections.length === 0 ? (
         <Card>
