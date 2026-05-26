@@ -209,3 +209,18 @@ export const filingChunks = pgTable(
     filingIdx: index('filing_chunks_filing_idx').on(t.filingId)
   })
 );
+
+export const filingSummaries = pgTable(
+  'filing_summaries',
+  {
+    filingId: text('filing_id')
+      .primaryKey()
+      .references(() => filings.accessionNo, { onDelete: 'cascade' }),
+    summaryText: text('summary_text').notNull(),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow()
+  }
+);

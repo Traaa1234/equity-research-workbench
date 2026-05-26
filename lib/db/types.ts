@@ -8,7 +8,8 @@ import type {
   notes,
   refreshRuns,
   filings,
-  filingChunks
+  filingChunks,
+  filingSummaries
 } from './schema';
 
 export type Company       = typeof companies.$inferSelect;
@@ -31,3 +32,5 @@ export type Filing        = typeof filings.$inferSelect;
 export type NewFiling     = typeof filings.$inferInsert;
 export type FilingChunk   = typeof filingChunks.$inferSelect;
 export type NewFilingChunk = typeof filingChunks.$inferInsert;
+export type FilingSummary    = typeof filingSummaries.$inferSelect;
+export type NewFilingSummary = typeof filingSummaries.$inferInsert;
