@@ -46,7 +46,8 @@ export class EmbeddingsProviderImpl implements EmbeddingsProvider {
     try {
       const response = await this.client.embeddings.create({
         model: req.model,
-        input: req.texts
+        input: req.texts,
+        encoding_format: 'float'
       });
       if (!response.data || response.data.length !== req.texts.length) {
         throw new UnknownProviderError(
