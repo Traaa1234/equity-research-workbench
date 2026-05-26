@@ -209,4 +209,21 @@ export class FilingsService {
 
     return rows[0]?.text ?? null;
   }
+
+  async getAllSectionTexts(filingId: string): Promise<Array<{
+    sectionKey: string;
+    sectionTitle: string;
+    text: string;
+  }>> {
+    const rows = await this.deps.db
+      .select({
+        sectionKey: filingChunks.sectionKey,
+        sectionTitle: filingChunks.sectionTitle,
+        text: filingChunks.text
+      })
+      .from(filingChunks)
+      .where(eq(filingChunks.filingId, filingId))
+      .orderBy(filingChunks.id);
+    return rows;
+  }
 }

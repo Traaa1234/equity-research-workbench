@@ -129,4 +129,29 @@ describe('FilingsService', () => {
     expect(res!.sections).toHaveLength(2);
     expect((res!.sections[0] as any).text).toBeUndefined();
   });
+
+  it('getAllSectionTexts returns chunks ordered by id', async () => {
+    await dbH.db.insert(filings).values({
+      accessionNo: '0000320193-24-000123', ticker: 'AAPL', cik: '0000320193',
+      formType: '10-K', filingDate: '2024-11-01', primaryDocUrl: 'https://x'
+    });
+    await dbH.db.insert(filingChunks).values([
+      { filingId: '0000320193-24-000123', sectionKey: 'item_1_business', sectionTitle: 'Business', text: 'A', charCount: 1 },
+      { filingId: '0000320193-24-000123', sectionKey: 'item_7_mdna', sectionTitle: 'MD&A', text: 'B', charCount: 1 },
+      { filingId: '0000320193-24-000123', sectionKey: 'item_1a_risk_factors', sectionTitle: 'Risk Factors', text: 'C', charCount: 1 }
+    ]);
+    const svc = new FilingsService({ db: dbH.db, provider: mockProvider({}) as any });
+    const sections = await svc.getAllSectionTexts('0000320193-24-000123');
+    expect(sections).toHaveLength(3);
+    expect(sections[0]!.sectionKey).toBe('item_1_business');
+    expect(sections[1]!.sectionKey).toBe('item_7_mdna');
+    expect(sections[2]!.sectionKey).toBe('item_1a_risk_factors');
+    expect(sections[0]!.text).toBe('A');
+  });
+
+  it('getAllSectionTexts returns empty array for missing filing', async () => {
+    const svc = new FilingsService({ db: dbH.db, provider: mockProvider({}) as any });
+    const sections = await svc.getAllSectionTexts('nope');
+    expect(sections).toEqual([]);
+  });
 });
