@@ -30,8 +30,11 @@ export class QwenProviderImpl implements QwenProvider {
       throw new ProviderError('DASHSCOPE_API_KEY is not set');
     }
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const clientConfig: any = {
+    // The openai SDK v6 ConstructorParameters type doesn't expose `fetch` cleanly
+    // when combined with our optional-fetch test injection, so we type the config
+    // as the SDK's expected shape plus an optional fetch field.
+    type ClientConfig = ConstructorParameters<typeof OpenAI>[0] & { fetch?: typeof fetch };
+    const clientConfig: ClientConfig = {
       apiKey,
       baseURL: opts.baseUrl ?? DEFAULT_BASE_URL,
       timeout: this.timeoutMs,
