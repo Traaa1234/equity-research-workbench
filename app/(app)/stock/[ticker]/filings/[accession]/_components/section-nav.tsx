@@ -23,6 +23,17 @@ export function SectionNav({ ticker, accession, sections }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    const match = hash.match(/^#section-([a-z0-9_]+)$/);
+    if (match && sections.some((s) => s.sectionKey === match[1])) {
+      setActive(match[1]!);
+    }
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!active || textCache[active] !== undefined) return;
     let cancelled = false;
     setLoading(true);
