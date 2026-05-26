@@ -154,4 +154,51 @@ describe('FilingsService', () => {
     const sections = await svc.getAllSectionTexts('nope');
     expect(sections).toEqual([]);
   });
+
+  it('ingest: calls embeddingsService.embedFiling when supplied', async () => {
+    const provider = mockProvider({
+      cik: '0000320193',
+      filings: [{
+        accessionNo: '0000320193-24-000123',
+        formType: '10-K',
+        filingDate: '2024-11-01',
+        periodEnd: '2024-09-28',
+        primaryDocUrl: 'https://x/1'
+      }],
+      sections: [
+        { section_key: 'item_1_business', section_title: 'Business', text: 'Apple does things.', char_offset_start: 0, char_offset_end: 18 }
+      ]
+    });
+    const embedFiling = vi.fn().mockResolvedValue({ filingId: '0000320193-24-000123', count: 5, durationMs: 100 });
+    const embeddingsService = { embedFiling } as any;
+    const svc = new FilingsService({ db: dbH.db, provider: provider as any, embeddingsService });
+
+    await svc.ingest('AAPL');
+
+    expect(embedFiling).toHaveBeenCalledWith('0000320193-24-000123');
+  });
+
+  it('ingest: embedding failure does NOT block ingestion', async () => {
+    const provider = mockProvider({
+      cik: '0000320193',
+      filings: [{
+        accessionNo: '0000320193-24-000123',
+        formType: '10-K',
+        filingDate: '2024-11-01',
+        periodEnd: '2024-09-28',
+        primaryDocUrl: 'https://x/1'
+      }],
+      sections: [
+        { section_key: 'item_1_business', section_title: 'Business', text: 'Apple does things.', char_offset_start: 0, char_offset_end: 18 }
+      ]
+    });
+    const embedFiling = vi.fn().mockRejectedValue(new Error('DashScope unavailable'));
+    const embeddingsService = { embedFiling } as any;
+    const svc = new FilingsService({ db: dbH.db, provider: provider as any, embeddingsService });
+
+    const summary = await svc.ingest('AAPL');
+
+    expect(summary.succeeded).toBe(1);
+    expect(embedFiling).toHaveBeenCalled();
+  });
 });

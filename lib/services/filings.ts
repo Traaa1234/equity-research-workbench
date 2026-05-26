@@ -4,10 +4,12 @@ import type { ServiceDb } from '@/lib/db/client';
 import { NotFoundError } from '@/lib/providers/types';
 import type { SecEdgarProvider } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
+import type { EmbeddingsService } from './embeddings';
 
 interface Deps {
   db: ServiceDb;
   provider: SecEdgarProvider;
+  embeddingsService?: EmbeddingsService;  // OPTIONAL — added in Slice 2C
 }
 
 export interface FilingListItem {
@@ -150,6 +152,19 @@ export class FilingsService {
           sourceUsed: 'sec_edgar'
         });
         summary.succeeded++;
+        // Slice 2C: embed the freshly-parsed filing.
+        // Embedding failure does NOT block ingestion — caught + logged separately.
+        if (this.deps.embeddingsService) {
+          try {
+            await this.deps.embeddingsService.embedFiling(filing.accessionNo);
+          } catch (embedErr) {
+            logger.warn(
+              { ticker: t, accession: filing.accessionNo, err: String(embedErr) },
+              'filings: embedding failed (filing still readable)'
+            );
+            // EmbeddingsService writes its own refresh_runs row on failure.
+          }
+        }
       } catch (err) {
         await this.deps.db.insert(refreshRuns).values({
           ticker: t,
