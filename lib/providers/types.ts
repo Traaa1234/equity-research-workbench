@@ -141,3 +141,18 @@ export interface QwenSummarizeResult {
 export interface QwenProvider {
   summarize(req: QwenSummarizeRequest): Promise<QwenSummarizeResult>;
 }
+
+// DashScope embeddings provider — used by EmbeddingsProvider.
+export interface EmbeddingsRequest {
+  model: string;
+  texts: string[];   // up to 25 texts per call (DashScope limit)
+}
+
+export interface EmbeddingsResult {
+  vectors: number[][];   // one per input text, all same dimensionality
+  inputTokens: number;
+}
+
+export interface EmbeddingsProvider {
+  embed(req: EmbeddingsRequest): Promise<EmbeddingsResult>;
+}
