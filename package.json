@@ -25,7 +25,8 @@
     "seed": "tsx scripts/seed.ts",
     "try": "tsx scripts/try-snapshot.ts",
     "try-filings": "tsx scripts/try-filings.ts",
-    "try-summarize": "tsx scripts/try-summarize.ts"
+    "try-summarize": "tsx scripts/try-summarize.ts",
+    "try-search": "tsx scripts/try-search.ts"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.22",
