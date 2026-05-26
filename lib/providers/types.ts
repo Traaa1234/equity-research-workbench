@@ -123,3 +123,21 @@ export interface SecEdgarProvider {
   listFilings(cik: string, forms: string[], yearsBack: number): Promise<SecFilingsList>;
   fetchFiling(primaryDocUrl: string, formType: string): Promise<SecFilingFull>;
 }
+
+// Qwen / DashScope provider types — used by QwenProvider.
+export interface QwenSummarizeRequest {
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+}
+
+export interface QwenSummarizeResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface QwenProvider {
+  summarize(req: QwenSummarizeRequest): Promise<QwenSummarizeResult>;
+}
