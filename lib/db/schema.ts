@@ -2,6 +2,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  customType,
   date,
   index,
   integer,
@@ -13,6 +14,25 @@ import {
   uniqueIndex,
   uuid
 } from 'drizzle-orm/pg-core';
+
+// Custom column type for pgvector. Drizzle's pg-core doesn't ship a `vector`
+// type yet, so we define one. Stores as JSON array literal '[0.1,0.2,...]',
+// which pgvector accepts as input. Reads back as number[].
+export const vector = customType<{
+  data: number[];
+  driverData: string;
+  config: { dimensions: number };
+}>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 1024})`;
+  },
+  toDriver(value) {
+    return JSON.stringify(value);
+  },
+  fromDriver(raw) {
+    return typeof raw === 'string' ? (JSON.parse(raw) as number[]) : (raw as unknown as number[]);
+  }
+});
 
 export const companies = pgTable('companies', {
   ticker: text('ticker').primaryKey(),
@@ -223,4 +243,25 @@ export const filingSummaries = pgTable(
     outputTokens: integer('output_tokens'),
     generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow()
   }
+);
+
+export const chunkEmbeddings = pgTable(
+  'chunk_embeddings',
+  {
+    filingId: text('filing_id')
+      .notNull()
+      .references(() => filings.accessionNo, { onDelete: 'cascade' }),
+    sectionKey: text('section_key').notNull(),
+    subChunkIndex: integer('sub_chunk_index').notNull(),
+    text: text('text').notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    charOffsetStart: integer('char_offset_start'),
+    charOffsetEnd: integer('char_offset_end'),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }).notNull().defaultNow(),
+    model: text('model').notNull()
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.filingId, t.sectionKey, t.subChunkIndex] }),
+    filingIdx: index('chunk_embeddings_filing_idx').on(t.filingId)
+  })
 );
