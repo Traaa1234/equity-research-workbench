@@ -147,18 +147,43 @@ SECTION_TITLES = {
 }
 
 
+def render_table_as_text(table):
+    """Render an HTML table as pipe-separated rows, one row per line.
+
+    Empty cells are dropped to avoid noise from layout-padding <td>'s.
+    Internal cell whitespace is collapsed to a single space.
+    """
+    rows = []
+    for tr in table.find_all('tr'):
+        cells = []
+        for td in tr.find_all(['td', 'th']):
+            cell_text = td.get_text(' ', strip=True)
+            if cell_text:
+                cells.append(cell_text)
+        if cells:
+            rows.append(' | '.join(cells))
+    return '\n'.join(rows)
+
+
 def clean_html_to_text(html: str) -> str:
-    """Strip scripts/styles/nav, extract text, collapse whitespace."""
+    """Strip noise tags, render tables as pipe-separated rows, return plaintext."""
     soup = BeautifulSoup(html, 'html.parser')
     for tag in soup(['script', 'style', 'head', 'meta', 'link']):
         tag.decompose()
-    # Drop tables that look like ToC (header rows mentioning "Table of Contents")
+
+    # Drop Table of Contents tables (existing behavior — noise, not data)
     for table in soup.find_all('table'):
         text = table.get_text(' ', strip=True)
         if 'table of contents' in text.lower()[:200]:
             table.decompose()
+
+    # NEW: replace remaining tables with their flat rendering before get_text()
+    for table in soup.find_all('table'):
+        rendered = render_table_as_text(table)
+        replacement = soup.new_string('\n' + rendered + '\n')
+        table.replace_with(replacement)
+
     text = soup.get_text('\n')
-    # Collapse whitespace: many \n -> two \n; many spaces -> one
     text = re.sub(r'\r\n', '\n', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n[ \t]+', '\n', text)
