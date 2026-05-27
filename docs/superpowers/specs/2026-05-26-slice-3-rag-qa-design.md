@@ -6,13 +6,18 @@
 
 ## Goal
 
-Add a natural-language Q&A interface where users ask questions about SEC filings ("What did Apple say about AI infrastructure capex?", "Which of my companies have China supply concentration?") and receive Qwen-generated answers with inline numbered citations linking back to specific filing sections. Vector retrieval (from Slice 2C) selects the top-8 chunks; the LLM synthesizes a grounded answer with bracketed `[N]` markers that map to source cards prefetched in the same response.
+Add a natural-language Q&A interface where users ask questions about SEC filings ("What did Apple say about AI infrastructure capex?", "Which of my companies have China supply concentration?") and receive **Gemini-generated** answers with inline numbered citations linking back to specific filing sections. Vector retrieval (from Slice 2C) selects the top-8 chunks; the LLM synthesizes a grounded answer with bracketed `[N]` markers that map to source cards prefetched in the same response.
 
 Two entry surfaces share one component:
 - **Cross-watchlist Q&A** at `/watchlist` — searches across every filing of every watched ticker
 - **Per-ticker Q&A** at `/stock/[ticker]/ask` — bounded to one ticker's filings
 
-Response streams token-by-token via Vercel AI SDK + the existing `openai` package configured for DashScope.
+Response streams token-by-token via Vercel AI SDK + the existing `openai` npm package configured for **Google's Gemini OpenAI-compatible endpoint**. Why Gemini for RAG instead of Qwen (Slice 2B):
+- **Free tier**: 15 RPM, 1M input tokens/day — covers a single user's research load indefinitely with $0 ongoing cost
+- **5× cheaper paid tier** ($0.075/M input vs Qwen's $0.40/M) if free tier is ever exceeded
+- **Provider diversity**: if DashScope ever has a bad day (as observed in our Slice 2C deploy), the RAG path keeps working
+
+**DashScope/Qwen stays for Slice 2B briefings and Slice 2C embeddings unchanged** — only the new RAG path uses Gemini. The embedding model in particular cannot be swapped without re-embedding the entire `chunk_embeddings` corpus (different dimensionalities).
 
 ## Non-Goals
 
@@ -109,10 +114,11 @@ client useChat() POST /api/rag  │  RagService.answer()     │
                                 │     w/ numbered chunks   │
                                 │                          │
                                 │  4. streamText({         │
-                                │       model: qwen-plus,  │
+                                │       model: gemini-2.5- │
+                                │         flash,           │
                                 │       messages,          │
-                                │       provider: openai-  │
-                                │         compatible       │
+                                │       provider: google   │
+                                │         openai-compat    │
                                 │     })                   │
                                 │                          │
                                 │  5. emit sources via     │
@@ -150,7 +156,7 @@ export const qaHistory = pgTable(
     query: text('query').notNull(),
     answerText: text('answer_text').notNull(),
     citations: jsonb('citations').notNull(),       // SearchResult[]-ish with cited chunk identifiers
-    model: text('model').notNull(),                // e.g. 'qwen-plus'
+    model: text('model').notNull(),                // e.g. 'gemini-2.5-flash'
     promptVersion: text('prompt_version').notNull(), // e.g. 'v1'
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
@@ -223,29 +229,57 @@ async searchAcrossWatchlist(opts: {
 
 Updates **2 of the existing 6** SearchService integration tests (assertion adjustments). Adds **2 new tests** specifically for the new opts.
 
-## QwenProvider streaming
+## GeminiProvider (new) + streaming
 
-Add a new method to `QwenProviderImpl`:
+A NEW provider `lib/providers/gemini.ts` mirrors `lib/providers/qwen.ts` but points at Google's Gemini OpenAI-compatible endpoint. **Qwen provider stays unchanged**; both providers coexist (Qwen for Slice 2B briefings, Gemini for Slice 3 RAG).
 
 ```ts
-async streamChat(opts: {
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  maxTokens?: number;
-  signal?: AbortSignal;
-}): Promise<AsyncIterable<string>>;
+export class GeminiProviderImpl implements ChatProvider {
+  constructor(opts?: {
+    apiKey?: string;       // default: process.env.GEMINI_API_KEY
+    baseUrl?: string;      // default: https://generativelanguage.googleapis.com/v1beta/openai/
+    timeoutMs?: number;    // default: 30_000
+    fetch?: typeof fetch;
+  });
+
+  async streamChat(opts: {
+    model: string;          // e.g. 'gemini-2.5-flash'
+    systemPrompt: string;
+    userPrompt: string;
+    maxTokens?: number;
+    signal?: AbortSignal;
+  }): Promise<AsyncIterable<string>>;
+
+  // Optional: non-streaming variant for testing / parity with Qwen
+  async chat(opts: { ... }): Promise<{ text: string; inputTokens: number; outputTokens: number; }>;
+}
 ```
 
-Returns an async iterable that yields text chunks (typically 1-3 tokens at a time as DashScope flushes them). Internally calls `client.chat.completions.create({ stream: true, ... })` and adapts the openai SDK's stream interface into a plain async iterable for easier consumption.
+Internally uses the existing `openai` npm package — Gemini speaks OpenAI's API shape at the `/v1beta/openai/` base URL.
 
-The existing `summarize()` method (Slice 2B) stays unchanged — non-streaming briefings continue to work the same way.
+**Streaming**: calls `client.chat.completions.create({ stream: true, ... })` and adapts the SDK's stream interface into a plain `AsyncIterable<string>` for `for await` consumption.
 
 **Abort support**: passing a `signal: AbortSignal` lets RagService cancel the stream if the client disconnects mid-response (avoids paying for tokens the user won't see).
 
-**Error handling**: errors mid-stream propagate by throwing inside the iterator on the next `.next()` call. Maps to the same typed errors (`RateLimitError`, `ProviderError`, etc.) as the existing `summarize()`.
+**Error handling**: errors mid-stream propagate by throwing inside the iterator on the next `.next()` call. Maps to the existing typed errors from `lib/providers/types.ts` (`RateLimitError`, `ProviderError`, `ValidationError`, `UnknownProviderError`) — same shape as `QwenProviderImpl`.
 
-**4 new unit tests:**
+**Why a new provider class, not extending Qwen's:**
+- Different env var (`GEMINI_API_KEY` vs `DASHSCOPE_API_KEY`)
+- Different default base URL
+- Cleaner separation: if we ever want both providers active in different routes, the two classes stay independent
+- The shared error taxonomy in `lib/providers/types.ts` covers both
+
+**A shared `ChatProvider` interface** is added to `lib/providers/types.ts` so RagService can depend on the interface (not the concrete class), enabling swap or fallback:
+
+```ts
+export interface ChatProvider {
+  streamChat(opts: {...}): Promise<AsyncIterable<string>>;
+}
+```
+
+Both `QwenProviderImpl` and `GeminiProviderImpl` implement it. `QwenProviderImpl` gains a `streamChat()` method for symmetry (deferred — not built in Slice 3 since briefings don't need streaming).
+
+**4 new unit tests for GeminiProvider:**
 1. Happy path — streamChat yields chunks
 2. Stream abort via AbortSignal — iterator stops
 3. 429 mid-stream → RateLimitError thrown
@@ -254,7 +288,7 @@ The existing `summarize()` method (Slice 2B) stays unchanged — non-streaming b
 ## RagService — `lib/services/rag.ts`
 
 ```ts
-export const CURRENT_MODEL = 'qwen-plus';
+export const CURRENT_MODEL = 'gemini-2.5-flash';
 export const CURRENT_PROMPT_VERSION = 'v1';
 const MAX_OUTPUT_TOKENS = 800;
 const RAG_MAX_DISTANCE = 0.55;
@@ -266,7 +300,7 @@ const MAX_QUERY_CHARS = 500;
 interface Deps {
   db: ServiceDb;
   searchService: SearchService;
-  qwenProvider: QwenProvider;
+  chatProvider: ChatProvider;   // GeminiProviderImpl in production
 }
 
 export interface RagScope {
@@ -312,19 +346,19 @@ export class RagService {
 3. If 0 results → return a result with empty sources + an async iterable that yields one apologetic message ("The filings don't contain content relevant to your question."). Skip the LLM call entirely (saves $0.003).
 4. Apply per-filing diversity post-rank: greedy walk through results in distance order, accept each chunk only if its filing's running count is < 3, stop at 8. Renumber `marker` 1..N.
 5. Assemble prompt (see Prompt section below).
-6. Call `qwenProvider.streamChat({...})` → get the AsyncIterable.
+6. Call `chatProvider.streamChat({...})` → get the AsyncIterable.
 7. Return `{ sources, answerStream, finalize }` where `finalize` is a closure capturing `userId`, `query`, `scope`, `sources`, etc. The route handler calls `finalize(fullAnswer, tokens)` after the stream completes.
 
 **`finalize()` flow** (called by the route handler after stream done):
 - INSERT into `qa_history` with full answer text + citation metadata
-- Insert `refresh_runs` row with `kind = 'rag:<scope>'`, `source_used = 'qwen'`, `ok = true`
+- Insert `refresh_runs` row with `kind = 'rag:<scope>'`, `source_used = 'gemini'`, `ok = true`
 - Both writes are wrapped in try/catch — failure logs a warning but doesn't throw (best-effort; user already has the answer on screen)
 
 **8 integration tests:**
 1. Cross-watchlist retrieval: returns 8 sources from multiple tickers
 2. Ticker-scoped retrieval: returns only chunks from the specified ticker
 3. Per-filing diversity: when 20 chunks from same filing rank highest, output has only 3 from that filing + 5 others
-4. Empty retrieval (all > maxDistance) short-circuits: no Qwen call made, returns empty sources + apology stream
+4. Empty retrieval (all > maxDistance) short-circuits: no LLM call made, returns empty sources + apology stream
 5. Empty watchlist: throws `ValidationError`
 6. Happy path: finalize() persists qa_history row with full answer + citations
 7. Zero-citations answer (LLM emits no `[N]` markers): finalize() still persists; warning logged
@@ -378,14 +412,15 @@ Sources (each numbered chunk is a passage from an SEC filing):
 Answer the question using only these sources. Cite with [N] markers.
 ````
 
-**Token math per Q:**
+**Token math per Q (Gemini 2.5 Flash):**
 
 - System prompt: ~100 tokens
 - 8 chunks × ~500 tokens = ~4000 tokens
 - Question + scaffolding: ~50 tokens
-- Total context: ~4150 tokens (well under Qwen-plus's 128k limit)
+- Total context: ~4150 tokens (well under Gemini 2.5 Flash's 1M token context window)
 - Output: ~400 tokens (3-6 sentences + citations)
-- Cost: ~$0.002 input + ~$0.0006 output ≈ **~$0.003 per question**
+- Cost on paid tier: ~$0.0003 input + ~$0.00012 output ≈ **~$0.0004 per question** (~5× cheaper than Qwen would have been)
+- Cost on free tier (≤1M input tokens/day, 15 RPM): **$0** — covers ~250 questions/day comfortably
 
 **Prompt iteration policy:**
 
@@ -408,9 +443,10 @@ Any post-launch prompt changes → bump to `v2`, which (via the `prompt_version`
 import { streamText, createDataStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
-const dashscope = createOpenAICompatible({
-  baseURL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-  apiKey: process.env.DASHSCOPE_API_KEY
+const gemini = createOpenAICompatible({
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  apiKey: process.env.GEMINI_API_KEY,
+  name: 'gemini'
 });
 
 export async function POST(req: Request) {
@@ -418,7 +454,7 @@ export async function POST(req: Request) {
   const { query, scope } = await req.json();
   // ...validate...
 
-  const rag = new RagService({ db, searchService, qwenProvider });
+  const rag = new RagService({ db, searchService, chatProvider });
   const ragResult = await rag.answer({ userId, query, scope });
 
   return createDataStreamResponse({
@@ -428,7 +464,7 @@ export async function POST(req: Request) {
 
       // Stream the LLM tokens
       const llmStream = streamText({
-        model: dashscope('qwen-plus'),
+        model: gemini('gemini-2.5-flash'),
         messages: ragResult.messages
       });
 
@@ -498,7 +534,7 @@ Body: { query: string; scope: { type: 'watchlist' | 'ticker'; ticker?: string } 
 **Errors:**
 - 401 — unauth
 - 400 — validation
-- 503 — provider rate limit (with `Retry-After` header if Qwen sent one)
+- 503 — provider rate limit (with `Retry-After` header if Gemini sent one)
 - 502 — provider error (generic)
 - 500 — unexpected
 
@@ -573,7 +609,8 @@ app/(app)/stock/[ticker]/
 
 | Failure | Surface | UI | Persisted? |
 |---|---|---|---|
-| `DASHSCOPE_API_KEY` missing | retrieval-time embed | "Q&A unavailable (provider not configured)" + retry | No |
+| `GEMINI_API_KEY` missing | stream | "Q&A unavailable (provider not configured)" + retry | No |
+| `DASHSCOPE_API_KEY` missing | retrieval-time query embedding | "Q&A unavailable (provider not configured)" + retry | No |
 | Query embedding 429 | retrieval | "Rate-limited, try in a moment" + retry | No |
 | Empty watchlist | retrieval | "Add tickers to your watchlist to ask questions about them" | No |
 | Retrieval yields 0 chunks (all > maxDistance) | retrieval | Apologetic stream: "The filings don't contain content relevant to your question." | No |
@@ -587,28 +624,29 @@ app/(app)/stock/[ticker]/
 
 **Critical invariant: persistence is best-effort, async, post-stream.** A DB failure during finalize doesn't fail the user-visible Q&A. Different from Slice 2A/2B where DB writes were synchronous to the response.
 
-**`refresh_runs` integration:** every attempt writes a row (`kind = 'rag:<scope>'`, `source_used = 'qwen'`, `ok`, `error` truncated to 1000 chars on failure).
+**`refresh_runs` integration:** every attempt writes a row (`kind = 'rag:<scope>'`, `source_used = 'gemini'`, `ok`, `error` truncated to 1000 chars on failure).
 
 ## Testing
 
 | Layer | Cases | Count |
 |---|---|---|
 | **SearchService** unit (modified) | new `tickerScope` filter · new `maxDistance` threshold | +2 tests (existing 6 still pass) |
-| **QwenProvider streaming** unit | streamChat happy path · abort signal stops iterator · 429 mid-stream → RateLimitError · empty/malformed → UnknownProviderError | 4 |
-| **RagService** integration (real test DB, mocked Qwen) | cross-watchlist retrieval returns sources · ticker-scoped retrieval · per-filing diversity ≤3 · empty retrieval short-circuits (no LLM) · empty watchlist → ValidationError · finalize persists qa_history · zero-citation answer persists with warning · finalize DB failure doesn't throw | 8 |
+| **GeminiProvider streaming** unit | streamChat happy path · abort signal stops iterator · 429 mid-stream → RateLimitError · empty/malformed → UnknownProviderError | 4 |
+| **RagService** integration (real test DB, mocked chat provider) | cross-watchlist retrieval returns sources · ticker-scoped retrieval · per-filing diversity ≤3 · empty retrieval short-circuits (no LLM) · empty watchlist → ValidationError · finalize persists qa_history · zero-citation answer persists with warning · finalize DB failure doesn't throw | 8 |
 | **API route** `/api/rag/stream` integration | 200 streaming · 400 invalid scope · 400 oversized query · 401 unauth · 503 on rate limit · empty retrieval returns helpful message | 6 |
 | **RLS smoke** for `qa_history` | user can SELECT own rows · user cannot SELECT others' rows · user cannot INSERT directly | 3 |
 | **Smoke script** `pnpm try-ask` | manual end-to-end against live DashScope, prints sources + streaming answer | (manual) |
 
 **Total: 4 new unit + 19 new integration = 23 new tests.** Cumulative project-wide after Slice 3: **107 unit + 136 integration = 243 tests** (existing 103 + 4 new unit; existing 117 + 19 new integration).
 
-**Streaming tests strategy:** the openai SDK's `stream: true` mode is mocked via dependency injection on `QwenProvider` — tests pass in an `AsyncIterable<string>` directly, bypassing the SDK's network layer. No real LLM calls in CI.
+**Streaming tests strategy:** the openai SDK's `stream: true` mode is mocked via dependency injection on `GeminiProvider` — tests pass in an `AsyncIterable<string>` directly, bypassing the SDK's network layer. No real LLM calls in CI.
 
 **No E2E Playwright** (Stack Auth ESM blocker carries from Slice 1C).
 
 ## Vercel Deploy
 
-- No new env vars (reuses `DASHSCOPE_API_KEY` from Slices 2B + 2C)
+- **New env var: `GEMINI_API_KEY`** — grab from https://aistudio.google.com/apikey (free tier, no credit card needed). Add to `.env.local`, Vercel env vars (Production + Preview), and GitHub Actions secrets if CI needs it (tests mock the provider so likely not needed).
+- `DASHSCOPE_API_KEY` still in use for Slice 2B briefings + Slice 2C embeddings (unchanged)
 - `maxDuration = 60` on `/api/rag/stream`
 - Vercel Node runtime supports streaming responses natively — no config changes
 - New npm packages: `ai`, `@ai-sdk/openai-compatible`
@@ -620,7 +658,7 @@ Plan tasks proceed in this order, each step committing independently:
 
 1. **Schema + RLS** — `qa_history` table on both Neon branches, user-scoped RLS policy
 2. **SearchService extensions** — add `tickerScope` + `maxDistance` opts + 2 new tests
-3. **QwenProvider streaming** — add `streamChat()` AsyncIterable method + 4 unit tests
+3. **GeminiProvider** — new `lib/providers/gemini.ts` with `streamChat()` AsyncIterable method + shared `ChatProvider` interface in `lib/providers/types.ts` + 4 unit tests
 4. **RagService** — retrieval + diversity + prompt + finalize + 8 integration tests
 5. **Vercel AI SDK install + API route** — `pnpm add ai @ai-sdk/openai-compatible`; write `/api/rag/stream` + 6 integration tests
 6. **RLS smoke for qa_history** — 3 tests
