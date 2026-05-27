@@ -50,6 +50,13 @@
       "when": 1779811291164,
       "tag": "0006_dapper_felicia_hardy",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779888351924,
+      "tag": "0007_nostalgic_champions",
+      "breakpoints": true
     }
   ]
 }

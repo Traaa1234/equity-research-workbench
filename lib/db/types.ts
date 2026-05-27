@@ -10,7 +10,8 @@ import type {
   filings,
   filingChunks,
   filingSummaries,
-  chunkEmbeddings
+  chunkEmbeddings,
+  qaHistory
 } from './schema';
 
 export type Company       = typeof companies.$inferSelect;
@@ -37,3 +38,5 @@ export type FilingSummary    = typeof filingSummaries.$inferSelect;
 export type NewFilingSummary = typeof filingSummaries.$inferInsert;
 export type ChunkEmbedding    = typeof chunkEmbeddings.$inferSelect;
 export type NewChunkEmbedding = typeof chunkEmbeddings.$inferInsert;
+export type QaHistory    = typeof qaHistory.$inferSelect;
+export type NewQaHistory = typeof qaHistory.$inferInsert;

@@ -6,6 +6,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -263,5 +264,26 @@ export const chunkEmbeddings = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.filingId, t.sectionKey, t.subChunkIndex] }),
     filingIdx: index('chunk_embeddings_filing_idx').on(t.filingId)
+  })
+);
+
+export const qaHistory = pgTable(
+  'qa_history',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    userId: uuid('user_id').notNull(),
+    scopeType: text('scope_type').notNull(),       // 'watchlist' | 'ticker'
+    scopeTicker: text('scope_ticker'),             // nullable; set only when scope_type='ticker'
+    query: text('query').notNull(),
+    answerText: text('answer_text').notNull(),
+    citations: jsonb('citations').notNull(),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    userCreatedIdx: index('qa_history_user_created_idx').on(t.userId, t.createdAt.desc())
   })
 );
