@@ -37,9 +37,10 @@ async function main() {
     .values({ ticker, name: ticker })
     .onConflictDoNothing();
 
-  const snapshot = new SnapshotService({ db, primary: fd, fallback: yf, redis });
-  const financials = new FinancialsService({ db, primary: fd, fallback: yf, redis });
-  const prices = new PricesService({ db, primary: fd, fallback: yf, redis });
+  // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
+  const snapshot = new SnapshotService({ db, primary: yf, fallback: fd, redis });
+  const financials = new FinancialsService({ db, primary: yf, fallback: fd, redis });
+  const prices = new PricesService({ db, primary: yf, fallback: fd, redis });
 
   console.log(`\n=== Snapshot ${ticker} ===`);
   console.log(await snapshot.get(ticker));

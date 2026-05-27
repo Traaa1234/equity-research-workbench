@@ -20,8 +20,9 @@ function service(): PricesService {
   const env = loadServerEnv();
   svc = new PricesService({
     db: getServiceDb(),
-    primary: new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY }),
-    fallback: new YFinanceProvider(),
+    // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
+    primary: new YFinanceProvider(),
+    fallback: new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY }),
     redis: getRedisCache()
   });
   return svc;

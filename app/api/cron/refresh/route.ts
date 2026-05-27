@@ -28,10 +28,11 @@ function buildDeps() {
   const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
   const yf = new YFinanceProvider();
   const redis = getRedisCache();
+  // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
   cachedDeps = {
-    snapshot: new SnapshotService({ db, primary: fd, fallback: yf, redis }),
-    financials: new FinancialsService({ db, primary: fd, fallback: yf, redis }),
-    prices: new PricesService({ db, primary: fd, fallback: yf, redis })
+    snapshot: new SnapshotService({ db, primary: yf, fallback: fd, redis }),
+    financials: new FinancialsService({ db, primary: yf, fallback: fd, redis }),
+    prices: new PricesService({ db, primary: yf, fallback: fd, redis })
   };
   return cachedDeps;
 }

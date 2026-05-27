@@ -21,8 +21,9 @@ function service(): FinancialsService {
   const env = loadServerEnv();
   svc = new FinancialsService({
     db: getServiceDb(),
-    primary: new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY }),
-    fallback: new YFinanceProvider(),
+    // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
+    primary: new YFinanceProvider(),
+    fallback: new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY }),
     redis: getRedisCache()
   });
   return svc;

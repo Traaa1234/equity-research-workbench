@@ -28,9 +28,10 @@ async function main() {
   const yf = new YFinanceProvider();
   const redis = getRedisCache();
 
-  const snapshot = new SnapshotService({ db, primary: fd, fallback: yf, redis });
-  const financials = new FinancialsService({ db, primary: fd, fallback: yf, redis });
-  const prices = new PricesService({ db, primary: fd, fallback: yf, redis });
+  // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
+  const snapshot = new SnapshotService({ db, primary: yf, fallback: fd, redis });
+  const financials = new FinancialsService({ db, primary: yf, fallback: fd, redis });
+  const prices = new PricesService({ db, primary: yf, fallback: fd, redis });
 
   logger.info({ count: SEED_TICKERS.length }, 'seed: inserting companies');
   for (const t of SEED_TICKERS) {
