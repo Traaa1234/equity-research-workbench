@@ -57,6 +57,13 @@
       "when": 1779888351924,
       "tag": "0007_nostalgic_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779903349819,
+      "tag": "0008_magenta_wolverine",
+      "breakpoints": true
     }
   ]
 }

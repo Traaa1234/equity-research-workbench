@@ -1,0 +1,1 @@
+ALTER TABLE "filing_chunks" ADD COLUMN "tables" jsonb DEFAULT '[]'::jsonb NOT NULL;

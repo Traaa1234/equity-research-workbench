@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
@@ -223,7 +224,8 @@ export const filingChunks = pgTable(
     text: text('text').notNull(),
     charCount: integer('char_count').notNull(),
     charOffsetStart: integer('char_offset_start'),
-    charOffsetEnd: integer('char_offset_end')
+    charOffsetEnd: integer('char_offset_end'),
+    tables: jsonb('tables').notNull().default(sql`'[]'::jsonb`)
   },
   (t) => ({
     filingSectionUniq: uniqueIndex('filing_chunks_filing_section_uniq').on(t.filingId, t.sectionKey),
