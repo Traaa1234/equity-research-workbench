@@ -67,6 +67,9 @@ export default async function FinancialsPage({ params, searchParams }: PageProps
             <TabsTrigger value="financials" asChild>
               <Link href={`/stock/${ticker}/financials`}>Financials</Link>
             </TabsTrigger>
+            <TabsTrigger value="technical" asChild>
+              <Link href={`/stock/${ticker}/technical`}>Technical</Link>
+            </TabsTrigger>
             <TabsTrigger value="filings" asChild>
               <Link href={`/stock/${ticker}/filings`}>Filings</Link>
             </TabsTrigger>
