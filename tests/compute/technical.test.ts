@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { sma, ema, rsi, macd } from '@/lib/compute/technical';
+import { sma, ema, rsi, macd, detectSignals, computeTechnical } from '@/lib/compute/technical';
+import type { PricePoint } from '@/lib/providers/types';
 
 describe('sma', () => {
   it('returns rolling mean with NaN padding before period', () => {
@@ -117,5 +118,78 @@ describe('macd', () => {
     expect(r.line.every((v) => Number.isNaN(v))).toBe(true);
     expect(r.signal.every((v) => Number.isNaN(v))).toBe(true);
     expect(r.histogram.every((v) => Number.isNaN(v))).toBe(true);
+  });
+});
+
+function fakePrices(closes: number[]): PricePoint[] {
+  // Generate dates 2025-01-01 onward (calendar days, not trading days — fine for tests)
+  return closes.map((close, i) => {
+    const d = new Date(2025, 0, 1 + i);
+    const date = d.toISOString().slice(0, 10);
+    return { date, open: close, high: close, low: close, close, adjClose: close, volume: 1000 };
+  });
+}
+
+describe('detectSignals', () => {
+  it('detects golden cross when 50-SMA crosses above 200-SMA', () => {
+    // Down for 250 days, then up for 100 — guarantees the 50-SMA dives below 200,
+    // then the 50-SMA recovers and crosses back above.
+    const closes = [
+      ...Array.from({ length: 250 }, (_, i) => 200 - i * 0.5),  // 200 → 75
+      ...Array.from({ length: 100 }, (_, i) => 75 + i * 2)       // 75 → 273
+    ];
+    const prices = fakePrices(closes);
+    const computed = computeTechnical(prices);
+    const goldens = computed.signals.filter((s) => s.kind === 'golden_cross');
+    expect(goldens.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('detects rsi_overbought as a transition only, not while staying above 70', () => {
+    // Strongly trending up to push RSI > 70 and keep it there
+    const closes = Array.from({ length: 50 }, (_, i) => 100 + i * 2);
+    const prices = fakePrices(closes);
+    const computed = computeTechnical(prices);
+    const overboughts = computed.signals.filter((s) => s.kind === 'rsi_overbought');
+    // Should be exactly ONE event (the transition), not many
+    expect(overboughts.length).toBe(1);
+  });
+
+  it('returns signals sorted by date descending', () => {
+    const closes = Array.from({ length: 300 }, (_, i) => 100 + Math.sin(i / 10) * 50);
+    const prices = fakePrices(closes);
+    const computed = computeTechnical(prices);
+    for (let i = 1; i < computed.signals.length; i++) {
+      expect(computed.signals[i - 1]!.date >= computed.signals[i]!.date).toBe(true);
+    }
+  });
+});
+
+describe('computeTechnical (integration)', () => {
+  it('handles short series gracefully (no NaN crash)', () => {
+    const prices = fakePrices([100, 101, 102, 99, 98]);
+    const r = computeTechnical(prices);
+    expect(r.sma20).toHaveLength(5);
+    expect(r.current.sma20).toBeNull();
+    expect(r.current.sma50).toBeNull();
+    expect(r.current.sma200).toBeNull();
+    expect(r.current.rsi).toBeNull();
+    expect(r.current.price).toBe(98);
+    expect(r.signals).toEqual([]);
+  });
+
+  it('produces current readings for a full-1Y series', () => {
+    // 251 trading days at constant 100 then trending up — guarantees SMAs and RSI populate
+    const closes = [
+      ...Array.from({ length: 200 }, () => 100),
+      ...Array.from({ length: 51 }, (_, i) => 100 + i)
+    ];
+    const prices = fakePrices(closes);
+    const r = computeTechnical(prices);
+    expect(r.current.sma20).not.toBeNull();
+    expect(r.current.sma50).not.toBeNull();
+    expect(r.current.sma200).not.toBeNull();
+    expect(r.current.rsi).not.toBeNull();
+    expect(r.current.macdHistogram).not.toBeNull();
+    expect(r.current.price).toBe(150);
   });
 });

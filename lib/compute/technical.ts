@@ -1,3 +1,5 @@
+import type { PricePoint } from '@/lib/providers/types';
+
 /**
  * Simple Moving Average.
  *
@@ -127,4 +129,135 @@ export function macd(
     }
   }
   return { line, signal, histogram };
+}
+
+export type SignalKind =
+  | 'golden_cross'
+  | 'death_cross'
+  | 'macd_bullish'
+  | 'macd_bearish'
+  | 'rsi_overbought'
+  | 'rsi_oversold';
+
+export interface Signal {
+  date: string;       // ISO YYYY-MM-DD
+  kind: SignalKind;
+  desc: string;
+  value?: number;
+}
+
+export interface TechnicalResult {
+  sma20: number[];
+  sma50: number[];
+  sma200: number[];
+  rsi: number[];
+  macdLine: number[];
+  macdSignal: number[];
+  macdHistogram: number[];
+  signals: Signal[];                                     // newest first
+  current: {
+    price: number;
+    sma20: number | null;
+    sma50: number | null;
+    sma200: number | null;
+    rsi: number | null;
+    macdHistogram: number | null;
+  };
+}
+
+function lastFinite(arr: number[]): number | null {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (Number.isFinite(arr[i]!)) return arr[i]!;
+  }
+  return null;
+}
+
+/**
+ * Walk indicator arrays day-by-day, emit one Signal per state transition.
+ * Returns oldest-first (sorted newest-first by the caller).
+ */
+export function detectSignals(
+  prices: PricePoint[],
+  sma50Arr: number[],
+  sma200Arr: number[],
+  rsiArr: number[],
+  macdLineArr: number[],
+  macdSignalArr: number[]
+): Signal[] {
+  const out: Signal[] = [];
+  const n = prices.length;
+
+  for (let i = 1; i < n; i++) {
+    const date = prices[i]!.date;
+
+    // Golden / death cross (50 vs 200 SMA)
+    const s50p = sma50Arr[i - 1]!, s50c = sma50Arr[i]!;
+    const s200p = sma200Arr[i - 1]!, s200c = sma200Arr[i]!;
+    if (Number.isFinite(s50p) && Number.isFinite(s50c) && Number.isFinite(s200p) && Number.isFinite(s200c)) {
+      if (s50p <= s200p && s50c > s200c) {
+        out.push({ date, kind: 'golden_cross', desc: 'Golden cross (50d SMA crossed above 200d SMA)' });
+      } else if (s50p >= s200p && s50c < s200c) {
+        out.push({ date, kind: 'death_cross', desc: 'Death cross (50d SMA crossed below 200d SMA)' });
+      }
+    }
+
+    // MACD line vs signal line crossover
+    const mlP = macdLineArr[i - 1]!, mlC = macdLineArr[i]!;
+    const msP = macdSignalArr[i - 1]!, msC = macdSignalArr[i]!;
+    if (Number.isFinite(mlP) && Number.isFinite(mlC) && Number.isFinite(msP) && Number.isFinite(msC)) {
+      if (mlP <= msP && mlC > msC) {
+        out.push({ date, kind: 'macd_bullish', desc: 'MACD bullish crossover (line crossed above signal)' });
+      } else if (mlP >= msP && mlC < msC) {
+        out.push({ date, kind: 'macd_bearish', desc: 'MACD bearish crossover (line crossed below signal)' });
+      }
+    }
+
+    // RSI overbought / oversold — transition only (avoid spam while RSI stays above/below)
+    // Treat NaN→finite as a state entry (so the seed boundary counts as a transition).
+    const rP = rsiArr[i - 1]!, rC = rsiArr[i]!;
+    if (Number.isFinite(rC)) {
+      const prevAboveOB = Number.isFinite(rP) && rP > 70;
+      const prevBelowOS = Number.isFinite(rP) && rP < 30;
+      if (!prevAboveOB && rC > 70) {
+        out.push({ date, kind: 'rsi_overbought', desc: `RSI overbought (${rC.toFixed(1)})`, value: rC });
+      } else if (!prevBelowOS && rC < 30) {
+        out.push({ date, kind: 'rsi_oversold', desc: `RSI oversold (${rC.toFixed(1)})`, value: rC });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Compute all indicators + signals for a price series. Pure function.
+ * `prices` MUST be sorted ascending by date.
+ */
+export function computeTechnical(prices: PricePoint[]): TechnicalResult {
+  const closes = prices.map((p) => p.close);
+  const sma20 = sma(closes, 20);
+  const sma50 = sma(closes, 50);
+  const sma200 = sma(closes, 200);
+  const rsiArr = rsi(closes, 14);
+  const macdR = macd(closes, 12, 26, 9);
+
+  const signalsAsc = detectSignals(prices, sma50, sma200, rsiArr, macdR.line, macdR.signal);
+  const signals = [...signalsAsc].reverse(); // newest first
+
+  const lastPrice = prices.length > 0 ? prices[prices.length - 1]!.close : NaN;
+  return {
+    sma20, sma50, sma200,
+    rsi: rsiArr,
+    macdLine: macdR.line,
+    macdSignal: macdR.signal,
+    macdHistogram: macdR.histogram,
+    signals,
+    current: {
+      price: lastPrice,
+      sma20: lastFinite(sma20),
+      sma50: lastFinite(sma50),
+      sma200: lastFinite(sma200),
+      rsi: lastFinite(rsiArr),
+      macdHistogram: lastFinite(macdR.histogram)
+    }
+  };
 }
