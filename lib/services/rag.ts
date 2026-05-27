@@ -1,4 +1,4 @@
-import { streamText, simulateReadableStream, type StreamTextResult, type LanguageModel } from 'ai';
+import { streamText, simulateReadableStream, type LanguageModel } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { count, eq } from 'drizzle-orm';
 import { qaHistory, watchlist } from '@/lib/db/schema';
@@ -45,8 +45,7 @@ interface Deps {
 
 export interface RagAnswerResult {
   sources: RagSource[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  streamResult: StreamTextResult<Record<string, never>, any>;
+  streamResult: ReturnType<typeof streamText>;
   finalize: (fullAnswerText: string, tokenUsage?: { input: number; output: number }) => Promise<void>;
 }
 
@@ -222,7 +221,7 @@ Answer the question using only these sources. Cite with [N] markers.`;
             },
             {
               type: 'finish' as const,
-              finishReason: 'stop' as const,
+              finishReason: { unified: 'stop' as const, raw: undefined },
               usage: {
                 inputTokens: {
                   total: 0,

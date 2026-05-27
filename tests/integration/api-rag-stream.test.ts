@@ -9,7 +9,7 @@ config({ path: '.env.local' });
 
 const STATIC_USER_ID = '22222222-2222-2222-2222-222222222222';
 
-async function seedSearchable(db: any) {
+async function seedSearchable(db: ReturnType<typeof makeTestServiceDb>['db']) {
   await db.insert(companies).values({ ticker: 'AAPL', name: 'Apple' });
   await db.insert(filings).values({
     accessionNo: '0000320193-24-000123', ticker: 'AAPL', cik: '0000320193',
@@ -57,8 +57,11 @@ describe('/api/rag/stream', () => {
               { type: 'text-delta' as const, id: 'd2', delta: ' 22% [1].' },
               {
                 type: 'finish' as const,
-                finishReason: 'stop' as const,
-                usage: { inputTokens: { total: 100 }, outputTokens: { total: 10 } }
+                finishReason: { unified: 'stop' as const, raw: undefined },
+                usage: {
+                  inputTokens: { total: 100, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                  outputTokens: { total: 10, text: undefined, reasoning: undefined }
+                }
               }
             ]
           })

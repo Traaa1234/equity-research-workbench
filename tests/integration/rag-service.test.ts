@@ -45,7 +45,7 @@ function mockLanguageModel(
           })),
           {
             type: 'finish' as const,
-            finishReason: 'stop' as const,
+            finishReason: { unified: 'stop' as const, raw: undefined },
             usage: makeV3Usage(usage.promptTokens, usage.completionTokens)
           }
         ]
@@ -56,7 +56,7 @@ function mockLanguageModel(
 }
 
 async function seedFilingWithEmbedding(
-  db: any,
+  db: ReturnType<typeof makeTestServiceDb>['db'],
   ticker: string,
   accessionSuffix: string,
   vector: number[],
@@ -242,7 +242,7 @@ describe('RagService', () => {
             chunks: [
               {
                 type: 'finish' as const,
-                finishReason: 'stop' as const,
+                finishReason: { unified: 'stop' as const, raw: undefined },
                 usage: makeV3Usage(0, 0)
               }
             ]
