@@ -72,6 +72,7 @@ export function newUserId(): string {
 export async function resetDb(db: ReturnType<typeof makeTestServiceDb>['db']) {
   await db.execute(
     sql`truncate table
+      public.qa_history,
       public.refresh_runs,
       public.notes,
       public.watchlist,
