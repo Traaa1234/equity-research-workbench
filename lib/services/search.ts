@@ -37,6 +37,8 @@ interface SearchOpts {
   query: string;
   limit?: number;
   formTypes?: string[];
+  tickerScope?: string;      // NEW: limit to one ticker
+  maxDistance?: number;      // NEW: override default DISTANCE_THRESHOLD
 }
 
 export class SearchService {
@@ -51,6 +53,7 @@ export class SearchService {
       throw new ValidationError(`Query exceeds ${MAX_QUERY_CHARS} characters`);
     }
     const limit = Math.min(MAX_LIMIT, Math.max(1, opts.limit ?? DEFAULT_LIMIT));
+    const distanceThreshold = opts.maxDistance ?? DISTANCE_THRESHOLD;
 
     const embedResult = await this.deps.provider.embed({
       model: CURRENT_EMBED_MODEL,
@@ -68,6 +71,11 @@ export class SearchService {
             `AND f.form_type IN (${opts.formTypes.map((t) => `'${t.replace(/'/g, "''")}'`).join(',')})`
           )
         : sql.raw('');
+
+    // Build the optional ticker scope filter using a parameterized value.
+    const tickerScopeFragment = opts.tickerScope
+      ? sql`AND f.ticker = ${opts.tickerScope}`
+      : sql``;
 
     const rows = await this.deps.db.execute(sql`
       SELECT
@@ -91,6 +99,7 @@ export class SearchService {
         SELECT w.ticker FROM watchlist w WHERE w.user_id = ${opts.userId}::uuid
       )
         ${formTypesSql}
+        ${tickerScopeFragment}
       ORDER BY ce.embedding <=> ${sql.raw(queryVecLiteral)}::vector
       LIMIT ${limit}
     `);
@@ -98,7 +107,7 @@ export class SearchService {
     const results: SearchResult[] = [];
     for (const r of rows as Array<Record<string, unknown>>) {
       const distance = Number(r.distance);
-      if (distance > DISTANCE_THRESHOLD) continue;
+      if (distance > distanceThreshold) continue;
       results.push({
         ticker: String(r.ticker),
         companyName: String(r.company_name),

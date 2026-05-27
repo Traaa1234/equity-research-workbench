@@ -133,4 +133,36 @@ describe('SearchService', () => {
       svc.searchAcrossWatchlist({ userId, query: 'x'.repeat(1000) })
     ).rejects.toBeInstanceOf(ValidationError);
   });
+
+  it('searchAcrossWatchlist: tickerScope limits results to one ticker', async () => {
+    const vec = Array(1024).fill(0.5);
+    await seedSearchableFiling(dbH.db, 'AAPL', vec);
+    await seedSearchableFiling(dbH.db, 'NVDA', vec);
+    await dbH.db.insert(watchlist).values([
+      { userId, ticker: 'AAPL' },
+      { userId, ticker: 'NVDA' }
+    ]);
+
+    const provider = mockProvider(vec);
+    const svc = new SearchService({ db: dbH.db, provider: provider as any });
+    const results = await svc.searchAcrossWatchlist({ userId, query: 'risk', tickerScope: 'NVDA' });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((r) => r.ticker === 'NVDA')).toBe(true);
+  });
+
+  it('searchAcrossWatchlist: maxDistance filters out distant results', async () => {
+    const closeVec = Array(1024).fill(0.5);
+    const farVec = Array(1024).fill(0).map((_, i) => (i < 100 ? 1.0 : -0.5));
+    await seedSearchableFiling(dbH.db, 'AAPL', closeVec);
+    await seedSearchableFiling(dbH.db, 'NVDA', farVec);
+    await dbH.db.insert(watchlist).values([
+      { userId, ticker: 'AAPL' },
+      { userId, ticker: 'NVDA' }
+    ]);
+
+    const provider = mockProvider(closeVec);
+    const svc = new SearchService({ db: dbH.db, provider: provider as any });
+    const results = await svc.searchAcrossWatchlist({ userId, query: 'risk', maxDistance: 0.3 });
+    expect(results.every((r) => r.ticker === 'AAPL')).toBe(true);
+  });
 });
