@@ -14,6 +14,8 @@ import { AddTickerDialog } from './_components/add-ticker-dialog';
 import { SearchBar } from './_components/search-bar';
 import { SearchResults } from './_components/search-results';
 import { SearchSkeleton } from './_components/search-skeleton';
+import { WatchlistTabs } from './_components/watchlist-tabs';
+import { AskPanel } from '@/app/(app)/_components/ask-panel';
 
 async function getWatchlistWithSnapshots(userId: string) {
   const db = getServiceDb();
@@ -37,7 +39,7 @@ async function getWatchlistWithSnapshots(userId: string) {
 }
 
 interface PageProps {
-  searchParams: { q?: string };
+  searchParams: { q?: string; mode?: string };
 }
 
 export default async function WatchlistPage({ searchParams }: PageProps) {
@@ -47,15 +49,31 @@ export default async function WatchlistPage({ searchParams }: PageProps) {
   if (items.length === 0) {
     return (
       <>
-        <div className="space-y-3">
-          <SearchBar />
-          <p className="text-xs text-muted-foreground">
-            Examples: &quot;China tariff exposure&quot;, &quot;AI infrastructure spending&quot;, &quot;customer concentration risk&quot;
-          </p>
-          {searchParams.q && (
-            <Suspense fallback={<SearchSkeleton />}>
-              <SearchResults q={searchParams.q} />
-            </Suspense>
+        <div className="space-y-4 mb-6">
+          <WatchlistTabs active={searchParams.mode === 'ask' ? 'ask' : 'search'} />
+
+          {searchParams.mode === 'ask' ? (
+            <AskPanel
+              scope={{ type: 'watchlist' }}
+              placeholder="🔍 Ask a question about your watchlist's filings…"
+              examples={[
+                'Which of my companies have China supply exposure?',
+                'Compare AI infrastructure spending across my watchlist',
+                'Who flagged regulatory risk in their latest 10-K?'
+              ]}
+            />
+          ) : (
+            <>
+              <SearchBar />
+              <p className="text-xs text-muted-foreground">
+                Examples: &quot;China tariff exposure&quot;, &quot;AI infrastructure spending&quot;, &quot;customer concentration risk&quot;
+              </p>
+              {searchParams.q && (
+                <Suspense fallback={<SearchSkeleton />}>
+                  <SearchResults q={searchParams.q} />
+                </Suspense>
+              )}
+            </>
           )}
         </div>
         <EmptyState />
@@ -71,15 +89,31 @@ export default async function WatchlistPage({ searchParams }: PageProps) {
           <h1 className="text-2xl font-semibold tracking-tight">Watchlist</h1>
           <p className="text-sm text-muted-foreground">{items.length} ticker{items.length === 1 ? '' : 's'}</p>
         </header>
-        <div className="space-y-3">
-          <SearchBar />
-          <p className="text-xs text-muted-foreground">
-            Examples: &quot;China tariff exposure&quot;, &quot;AI infrastructure spending&quot;, &quot;customer concentration risk&quot;
-          </p>
-          {searchParams.q && (
-            <Suspense fallback={<SearchSkeleton />}>
-              <SearchResults q={searchParams.q} />
-            </Suspense>
+        <div className="space-y-4 mb-6">
+          <WatchlistTabs active={searchParams.mode === 'ask' ? 'ask' : 'search'} />
+
+          {searchParams.mode === 'ask' ? (
+            <AskPanel
+              scope={{ type: 'watchlist' }}
+              placeholder="🔍 Ask a question about your watchlist's filings…"
+              examples={[
+                'Which of my companies have China supply exposure?',
+                'Compare AI infrastructure spending across my watchlist',
+                'Who flagged regulatory risk in their latest 10-K?'
+              ]}
+            />
+          ) : (
+            <>
+              <SearchBar />
+              <p className="text-xs text-muted-foreground">
+                Examples: &quot;China tariff exposure&quot;, &quot;AI infrastructure spending&quot;, &quot;customer concentration risk&quot;
+              </p>
+              {searchParams.q && (
+                <Suspense fallback={<SearchSkeleton />}>
+                  <SearchResults q={searchParams.q} />
+                </Suspense>
+              )}
+            </>
           )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
