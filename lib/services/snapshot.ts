@@ -8,6 +8,7 @@ import {
   NotFoundError,
   Provider,
   ProviderError,
+  ProviderName,
   RateLimitError,
   SnapshotData,
   ValidationError
@@ -70,20 +71,20 @@ export class SnapshotService {
     const t = ticker.toUpperCase();
     const key = `ticker:snapshot:${t}`;
     let data: SnapshotData;
-    let source: 'financial_datasets' | 'yfinance';
+    let source: ProviderName;
 
     try {
       data = await this.deps.primary.snapshot(t);
-      source = 'financial_datasets';
+      source = this.deps.primary.name;
     } catch (err) {
       if (err instanceof NotFoundError || err instanceof ValidationError) throw err;
       if (err instanceof RateLimitError || err instanceof ProviderError) {
         logger.warn(
-          { ticker: t, err: String(err) },
-          'snapshot: falling back to yfinance'
+          { ticker: t, primary: this.deps.primary.name, fallback: this.deps.fallback.name, err: String(err) },
+          'snapshot: falling back to secondary provider'
         );
         data = await this.deps.fallback.snapshot(t);
-        source = 'yfinance';
+        source = this.deps.fallback.name;
       } else {
         throw err;
       }

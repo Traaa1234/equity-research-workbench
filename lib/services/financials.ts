@@ -9,6 +9,7 @@ import {
   PeriodType,
   Provider,
   ProviderError,
+  ProviderName,
   RateLimitError,
   StatementBundle,
   StatementType,
@@ -78,20 +79,20 @@ export class FinancialsService {
     const t = ticker.toUpperCase();
     const key = `ticker:financials:${t}:${type}:${period}`;
     let bundle: StatementBundle;
-    let source: 'financial_datasets' | 'yfinance';
+    let source: ProviderName;
 
     try {
       bundle = await this.deps.primary.statements(t, type, period);
-      source = 'financial_datasets';
+      source = this.deps.primary.name;
     } catch (err) {
       if (err instanceof NotFoundError || err instanceof ValidationError) throw err;
       if (err instanceof RateLimitError || err instanceof ProviderError) {
         logger.warn(
-          { ticker: t, err: String(err) },
-          'financials: falling back to yfinance'
+          { ticker: t, primary: this.deps.primary.name, fallback: this.deps.fallback.name, err: String(err) },
+          'financials: falling back to secondary provider'
         );
         bundle = await this.deps.fallback.statements(t, type, period);
-        source = 'yfinance';
+        source = this.deps.fallback.name;
       } else {
         throw err;
       }
