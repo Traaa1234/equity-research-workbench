@@ -97,6 +97,8 @@ def render_table_as_text(table):
         cells = []
         for td in tr.find_all(['td', 'th']):
             cell_text = td.get_text(' ', strip=True)
+            # Collapse all internal whitespace to a single space
+            cell_text = re.sub(r'\s+', ' ', cell_text)
             if cell_text:
                 cells.append(cell_text)
         if cells:
