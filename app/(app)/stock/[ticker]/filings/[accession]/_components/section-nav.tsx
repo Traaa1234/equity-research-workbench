@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import type { SecTable } from '@/lib/providers/types';
+import { SectionText } from './section-text';
 
 interface SectionRef {
   sectionKey: string;
@@ -16,10 +18,15 @@ interface Props {
   sections: SectionRef[];
 }
 
+interface CachedSection {
+  text: string;
+  tables: SecTable[];
+}
+
 export function SectionNav({ ticker, accession, sections }: Props) {
   const firstKey = sections[0]?.sectionKey ?? '';
   const [active, setActive] = useState(firstKey);
-  const [textCache, setTextCache] = useState<Record<string, string>>({});
+  const [cache, setCache] = useState<Record<string, CachedSection | ''>>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -29,29 +36,31 @@ export function SectionNav({ ticker, accession, sections }: Props) {
     if (match && sections.some((s) => s.sectionKey === match[1])) {
       setActive(match[1]!);
     }
-    // run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!active || textCache[active] !== undefined) return;
+    if (!active || cache[active] !== undefined) return;
     let cancelled = false;
     setLoading(true);
     fetch(`/api/tickers/${ticker}/filings/${accession}/sections/${active}`)
       .then((r) => r.json())
-      .then((d: { text: string }) => {
-        if (!cancelled) {
-          setTextCache((c) => ({ ...c, [active]: d.text ?? '' }));
+      .then((d: { text?: string; tables?: SecTable[] }) => {
+        if (cancelled) return;
+        if (typeof d.text === 'string') {
+          setCache((c) => ({ ...c, [active]: { text: d.text!, tables: d.tables ?? [] } }));
+        } else {
+          setCache((c) => ({ ...c, [active]: '' }));
         }
       })
       .catch(() => {
-        if (!cancelled) setTextCache((c) => ({ ...c, [active]: '' }));
+        if (!cancelled) setCache((c) => ({ ...c, [active]: '' }));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [active, accession, ticker, textCache]);
+  }, [active, accession, ticker, cache]);
 
   if (sections.length === 0) return null;
 
@@ -64,23 +73,24 @@ export function SectionNav({ ticker, accession, sections }: Props) {
           </TabsTrigger>
         ))}
       </TabsList>
-      {sections.map((s) => (
-        <TabsContent key={s.sectionKey} value={s.sectionKey}>
-          <Card>
-            <CardContent className="py-6">
-              {textCache[s.sectionKey] === undefined ? (
-                <p className="text-sm text-muted-foreground">{loading ? 'Loading section…' : ''}</p>
-              ) : textCache[s.sectionKey] === '' ? (
-                <p className="text-sm text-muted-foreground">No text available for this section.</p>
-              ) : (
-                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-                  {textCache[s.sectionKey]}
-                </pre>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      ))}
+      {sections.map((s) => {
+        const c = cache[s.sectionKey];
+        return (
+          <TabsContent key={s.sectionKey} value={s.sectionKey}>
+            <Card>
+              <CardContent className="py-6">
+                {c === undefined ? (
+                  <p className="text-sm text-muted-foreground">{loading ? 'Loading section…' : ''}</p>
+                ) : c === '' ? (
+                  <p className="text-sm text-muted-foreground">No text available for this section.</p>
+                ) : (
+                  <SectionText text={c.text} tables={c.tables} />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        );
+      })}
     </Tabs>
   );
 }
