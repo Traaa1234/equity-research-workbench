@@ -133,6 +133,47 @@ describe('EmbeddingsService', () => {
     expect(result.count).toBe(0);
   });
 
+  it('embedFiling: substitutes table markers before embedding (no marker survives in chunk_embeddings.text)', async () => {
+    await dbH.db.insert(companies).values({ ticker: 'AAPL', name: 'Apple Inc.' });
+    await dbH.db.insert(filings).values({
+      accessionNo: ACCESSION, ticker: 'AAPL', cik: '0000320193',
+      formType: '10-K', filingDate: '2024-11-01', primaryDocUrl: 'https://x'
+    });
+    await dbH.db.insert(filingChunks).values({
+      filingId: ACCESSION,
+      sectionKey: 'part1_item1_financial_statements',
+      sectionTitle: 'Financial Statements',
+      text: 'Lead-in.\n\n<<TABLE_0>>\n\nTrailing.',
+      charCount: 100,
+      charOffsetStart: 0,
+      charOffsetEnd: 100,
+      tables: [
+        {
+          id: 0,
+          rows: [['Product', 'Revenue'], ['Phones', '$100']],
+          colspans: [[1, 1], [1, 1]],
+          head_row_count: 1
+        }
+      ]
+    });
+
+    const provider = mockProvider();
+    const filingsSvc = new FilingsService({ db: dbH.db, provider: {} as any });
+    const svc = new EmbeddingsService({ db: dbH.db, provider: provider as any, filingsService: filingsSvc });
+
+    await svc.embedFiling(ACCESSION);
+
+    const rows = await dbH.db
+      .select({ text: chunkEmbeddings.text })
+      .from(chunkEmbeddings)
+      .where(eq(chunkEmbeddings.filingId, ACCESSION));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.text).not.toContain('<<TABLE_');
+      expect(r.text).toContain('Product | Revenue');
+    }
+  });
+
   it('embedFiling: writes a refresh_runs row on success', async () => {
     await seedFilingWithChunks(dbH.db);
     const provider = mockProvider();

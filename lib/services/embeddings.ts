@@ -5,6 +5,7 @@ import { EmbeddingsProvider, ValidationError } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 import { FilingsService } from './filings';
 import { subChunk } from './chunking';
+import { substituteTableMarkers } from './table-render';
 
 export const CURRENT_EMBED_MODEL = 'text-embedding-v3';
 // DashScope text-embedding-v3 caps batches at 10 texts per /embeddings call
@@ -64,7 +65,11 @@ export class EmbeddingsService {
     }
     const prepared: PreparedChunk[] = [];
     for (const section of sections) {
-      const windows = subChunk(section.text, { targetTokens: TARGET_TOKENS, overlapTokens: OVERLAP_TOKENS });
+      // Slice 3.6: replace <<TABLE_N>> markers in stored text with pipe-rendered
+      // tables BEFORE subchunking. This keeps the embedded text byte-identical to
+      // what Slice 3.5 produced for the same source HTML — no retrieval regression.
+      const renderedText = substituteTableMarkers(section.text, section.tables);
+      const windows = subChunk(renderedText, { targetTokens: TARGET_TOKENS, overlapTokens: OVERLAP_TOKENS });
       for (let i = 0; i < windows.length; i++) {
         const w = windows[i]!;
         prepared.push({
