@@ -10,7 +10,7 @@ import { GEMINI_MODEL } from '@/lib/providers/gemini';
 
 export const CURRENT_MODEL = GEMINI_MODEL;
 export const CURRENT_PROMPT_VERSION = 'v1';
-const MAX_OUTPUT_TOKENS = 800;
+const MAX_OUTPUT_TOKENS = 2048;
 const RAG_MAX_DISTANCE = 0.55;
 const RETRIEVAL_RAW_K = 30;
 const RETRIEVAL_FINAL_K = 8;
@@ -127,7 +127,7 @@ export class RagService {
     ) => {
       try {
         // Warn if no citations found in the answer
-        if (!/\[\d+\]/.test(fullAnswerText)) {
+        if (!/\[\d[\d,\s]*\]/.test(fullAnswerText)) {
           logger.warn({ userId: opts.userId }, 'rag: answer contains no citation markers');
         }
 

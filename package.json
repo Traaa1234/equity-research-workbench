@@ -26,7 +26,8 @@
     "try": "tsx scripts/try-snapshot.ts",
     "try-filings": "tsx scripts/try-filings.ts",
     "try-summarize": "tsx scripts/try-summarize.ts",
-    "try-search": "tsx scripts/try-search.ts"
+    "try-search": "tsx scripts/try-search.ts",
+    "try-ask": "tsx scripts/try-ask.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
