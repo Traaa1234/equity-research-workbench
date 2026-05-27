@@ -24,9 +24,9 @@ export async function GET(_req: Request, ctx: RouteContext) {
     const { accession, sectionKey } = ctx.params;
     if (!ACCESSION_RE.test(accession)) throw new ValidationError(`Invalid accession: ${accession}`);
     if (!SECTION_KEY_RE.test(sectionKey)) throw new ValidationError(`Invalid section key: ${sectionKey}`);
-    const text = await service().getSectionText(accession, sectionKey);
-    if (text == null) throw new NotFoundError(`Section not found: ${sectionKey}`);
-    return ok({ text });
+    const result = await service().getSectionFull(accession, sectionKey);
+    if (result == null) throw new NotFoundError(`Section not found: ${sectionKey}`);
+    return ok({ text: result.text, tables: result.tables });
   } catch (err) {
     return errorResponse(err, { route: 'tickers/[symbol]/filings/[accession]/sections/[sectionKey] GET' });
   }
