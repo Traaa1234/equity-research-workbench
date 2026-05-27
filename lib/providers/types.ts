@@ -103,12 +103,24 @@ export interface SecFilingsList {
   filings: SecFilingMeta[];
 }
 
+// One structured table from a filing section. Empty cells preserved.
+// colspans parallel rows: 1=normal, n>1=spans n cols, 0=covered by prev span.
+// head_row_count = how many leading rows came from <thead> or were all-<th>.
+// Field names use snake_case to match the Python API wire format.
+export interface SecTable {
+  id: number;
+  rows: string[][];
+  colspans: number[][];
+  head_row_count: number;
+}
+
 export interface SecSection {
   section_key: string;
   section_title: string;
   text: string;
   char_offset_start: number;
   char_offset_end: number;
+  tables: SecTable[];
 }
 
 export interface SecFilingFull {
