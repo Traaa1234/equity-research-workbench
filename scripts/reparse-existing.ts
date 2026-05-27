@@ -86,7 +86,8 @@ async function main() {
             text: s.text,
             charCount: s.text.length,
             charOffsetStart: s.char_offset_start,
-            charOffsetEnd: s.char_offset_end
+            charOffsetEnd: s.char_offset_end,
+            tables: s.tables ?? []
           }))
         );
       });
