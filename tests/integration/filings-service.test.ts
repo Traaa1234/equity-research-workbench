@@ -10,7 +10,14 @@ config({ path: '.env.local' });
 function mockProvider(opts: {
   cik?: string;
   filings?: Array<{ accessionNo: string; formType: string; filingDate: string; periodEnd: string | null; primaryDocUrl: string }>;
-  sections?: Array<{ section_key: string; section_title: string; text: string; char_offset_start: number; char_offset_end: number }>;
+  sections?: Array<{
+    section_key: string;
+    section_title: string;
+    text: string;
+    char_offset_start: number;
+    char_offset_end: number;
+    tables?: Array<{ id: number; rows: string[][]; colspans: number[][]; head_row_count: number }>;
+  }>;
 }) {
   return {
     resolveCik: vi.fn().mockResolvedValue(opts.cik ?? '0000320193'),
@@ -18,7 +25,7 @@ function mockProvider(opts: {
     fetchFiling: vi.fn().mockResolvedValue({
       formType: '10-K',
       primaryDocUrl: 'https://x',
-      sections: opts.sections ?? [],
+      sections: (opts.sections ?? []).map((s) => ({ ...s, tables: s.tables ?? [] })),
       totalChars: 1000
     })
   };
@@ -82,6 +89,50 @@ describe('FilingsService', () => {
 
     const company = await dbH.db.select().from(companies).where(eq(companies.ticker, 'AAPL'));
     expect(company[0]!.cik).toBe('0000320193');
+  });
+
+  it('writes section.tables JSONB on ingest and reads it back via getAllSectionTexts', async () => {
+    const provider = mockProvider({
+      cik: '0000320193',
+      filings: [{
+        accessionNo: '0000320193-26-000001',
+        formType: '10-Q',
+        filingDate: '2026-01-01',
+        periodEnd: '2026-01-01',
+        primaryDocUrl: 'https://x/q1'
+      }],
+      sections: [
+        {
+          section_key: 'part1_item1_financial_statements',
+          section_title: 'Financial Statements',
+          text: 'Item 1. Financial Statements\n\n<<TABLE_0>>\n\nEnd.',
+          char_offset_start: 0,
+          char_offset_end: 47,
+          tables: [
+            {
+              id: 0,
+              rows: [['Product', 'Revenue'], ['Phones', '$100']],
+              colspans: [[1, 1], [1, 1]],
+              head_row_count: 1
+            }
+          ]
+        }
+      ]
+    });
+
+    const svc = new FilingsService({ db: dbH.db, provider: provider as any });
+    await svc.ingest('AAPL');
+
+    const sections = await svc.getAllSectionTexts('0000320193-26-000001');
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.tables).toEqual([
+      {
+        id: 0,
+        rows: [['Product', 'Revenue'], ['Phones', '$100']],
+        colspans: [[1, 1], [1, 1]],
+        head_row_count: 1
+      }
+    ]);
   });
 
   it('ingest: skips resolveCik when company.cik already set', async () => {

@@ -2,7 +2,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { companies, filings, filingChunks, refreshRuns } from '@/lib/db/schema';
 import type { ServiceDb } from '@/lib/db/client';
 import { NotFoundError } from '@/lib/providers/types';
-import type { SecEdgarProvider } from '@/lib/providers/types';
+import type { SecEdgarProvider, SecTable } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 import type { EmbeddingsService } from './embeddings';
 
@@ -134,7 +134,8 @@ export class FilingsService {
                 text: s.text,
                 charCount: s.text.length,
                 charOffsetStart: s.char_offset_start,
-                charOffsetEnd: s.char_offset_end
+                charOffsetEnd: s.char_offset_end,
+                tables: s.tables ?? []
               }))
             )
             .onConflictDoNothing();
@@ -225,20 +226,40 @@ export class FilingsService {
     return rows[0]?.text ?? null;
   }
 
+  async getSectionFull(accessionNo: string, sectionKey: string): Promise<{
+    text: string;
+    tables: SecTable[];
+  } | null> {
+    const rows = await this.deps.db
+      .select({ text: filingChunks.text, tables: filingChunks.tables })
+      .from(filingChunks)
+      .where(and(eq(filingChunks.filingId, accessionNo), eq(filingChunks.sectionKey, sectionKey)))
+      .limit(1);
+    if (rows.length === 0) return null;
+    return { text: rows[0]!.text, tables: (rows[0]!.tables as SecTable[]) ?? [] };
+  }
+
   async getAllSectionTexts(filingId: string): Promise<Array<{
     sectionKey: string;
     sectionTitle: string;
     text: string;
+    tables: SecTable[];
   }>> {
     const rows = await this.deps.db
       .select({
         sectionKey: filingChunks.sectionKey,
         sectionTitle: filingChunks.sectionTitle,
-        text: filingChunks.text
+        text: filingChunks.text,
+        tables: filingChunks.tables
       })
       .from(filingChunks)
       .where(eq(filingChunks.filingId, filingId))
       .orderBy(filingChunks.id);
-    return rows;
+    return rows as Array<{
+      sectionKey: string;
+      sectionTitle: string;
+      text: string;
+      tables: SecTable[];
+    }>;
   }
 }
