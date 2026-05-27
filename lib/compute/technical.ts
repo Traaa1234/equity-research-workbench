@@ -77,3 +77,54 @@ export function rsi(closes: number[], period = 14): number[] {
   }
   return out;
 }
+
+export interface MacdResult {
+  line: number[];      // EMA(fast) - EMA(slow); NaN where either is NaN
+  signal: number[];    // EMA(line, signal-period)
+  histogram: number[]; // line - signal
+}
+
+/**
+ * Moving Average Convergence Divergence.
+ *
+ * line       = EMA(closes, fast) - EMA(closes, slow)
+ * signal     = EMA(line, signalPeriod)         — only over the non-NaN portion of line
+ * histogram  = line - signal
+ *
+ * NaN propagates: line[i] is NaN where either EMA is NaN; signal[i] needs
+ * `signalPeriod` consecutive non-NaN line values to seed.
+ */
+export function macd(
+  closes: number[],
+  fast = 12,
+  slow = 26,
+  signalPeriod = 9
+): MacdResult {
+  const n = closes.length;
+  const fastEma = ema(closes, fast);
+  const slowEma = ema(closes, slow);
+  const line = new Array<number>(n).fill(NaN);
+  for (let i = 0; i < n; i++) {
+    if (!Number.isNaN(fastEma[i]!) && !Number.isNaN(slowEma[i]!)) {
+      line[i] = fastEma[i]! - slowEma[i]!;
+    }
+  }
+  // Compute signal as EMA of `line`, but only after `line` has values.
+  // Find first non-NaN index in line.
+  const firstLineIdx = line.findIndex((v) => !Number.isNaN(v));
+  const signal = new Array<number>(n).fill(NaN);
+  if (firstLineIdx >= 0 && n - firstLineIdx >= signalPeriod) {
+    const lineSlice = line.slice(firstLineIdx);
+    const sigSlice = ema(lineSlice, signalPeriod);
+    for (let i = 0; i < sigSlice.length; i++) {
+      signal[firstLineIdx + i] = sigSlice[i]!;
+    }
+  }
+  const histogram = new Array<number>(n).fill(NaN);
+  for (let i = 0; i < n; i++) {
+    if (!Number.isNaN(line[i]!) && !Number.isNaN(signal[i]!)) {
+      histogram[i] = line[i]! - signal[i]!;
+    }
+  }
+  return { line, signal, histogram };
+}

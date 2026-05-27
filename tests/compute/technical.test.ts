@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sma, ema, rsi } from '@/lib/compute/technical';
+import { sma, ema, rsi, macd } from '@/lib/compute/technical';
 
 describe('sma', () => {
   it('returns rolling mean with NaN padding before period', () => {
@@ -78,5 +78,44 @@ describe('rsi (Wilder smoothing)', () => {
     // (matches Wilder + most charting platforms).
     const out = rsi([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], 14);
     expect(out[14]).toBe(100);
+  });
+});
+
+describe('macd', () => {
+  it('returns three parallel arrays of equal length', () => {
+    // Need at least fast(12) + slow(26) - 1 + signal(9) - 1 = 35 datapoints
+    // to get the first non-NaN signal/histogram values.
+    const closes = Array.from({ length: 40 }, (_, i) => 100 + i); // monotonically increasing
+    const r = macd(closes, 12, 26, 9);
+    expect(r.line).toHaveLength(40);
+    expect(r.signal).toHaveLength(40);
+    expect(r.histogram).toHaveLength(40);
+  });
+
+  it('produces NaN line[] before slow EMA seeds (index < slow-1)', () => {
+    const closes = Array.from({ length: 40 }, (_, i) => 100 + i);
+    const r = macd(closes, 12, 26, 9);
+    for (let i = 0; i < 25; i++) {
+      expect(Number.isNaN(r.line[i])).toBe(true);
+    }
+    // line is defined from index 25 onward (slow-1 = 25)
+    expect(Number.isNaN(r.line[25])).toBe(false);
+  });
+
+  it('histogram equals line minus signal where both defined', () => {
+    const closes = Array.from({ length: 50 }, (_, i) => 100 + Math.sin(i / 3) * 5);
+    const r = macd(closes, 12, 26, 9);
+    for (let i = 33; i < 50; i++) {
+      if (!Number.isNaN(r.line[i]!) && !Number.isNaN(r.signal[i]!)) {
+        expect(r.histogram[i]).toBeCloseTo(r.line[i]! - r.signal[i]!, 5);
+      }
+    }
+  });
+
+  it('returns all-NaN when series too short', () => {
+    const r = macd([1, 2, 3, 4, 5], 12, 26, 9);
+    expect(r.line.every((v) => Number.isNaN(v))).toBe(true);
+    expect(r.signal.every((v) => Number.isNaN(v))).toBe(true);
+    expect(r.histogram.every((v) => Number.isNaN(v))).toBe(true);
   });
 });
