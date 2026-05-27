@@ -251,11 +251,27 @@ def clean_html_to_text(html):
         marker = soup.new_string(f'\n<<TABLE_{table_id}>>\n')
         table.replace_with(marker)
 
-    text = soup.get_text('\n')
+    # Slice 3.7: inject newlines around BLOCK-LEVEL elements so they separate
+    # in the final text, while INLINE elements (<font>, <span>, <a>, <em>,
+    # <strong>, etc.) join with spaces only. Using get_text('\n') splits every
+    # text node onto its own line, which fragments prose like
+    # "As of March 28, 2026, <font>79</font>% of..." into three lines.
+    BLOCK_TAGS = ['p', 'div', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'hr']
+    for tag in soup.find_all(BLOCK_TAGS):
+        tag.insert_before('\n')
+        if tag.name != 'br' and tag.name != 'hr':
+            tag.insert_after('\n')
+
+    text = soup.get_text(' ')
     text = re.sub(r'\r\n', '\n', text)
     text = re.sub(r'[ \t]+', ' ', text)
-    text = re.sub(r'\n[ \t]+', '\n', text)
+    text = re.sub(r'[ \t]+\n', '\n', text)   # trim trailing space before \n
+    text = re.sub(r'\n[ \t]+', '\n', text)   # trim leading space after \n
     text = re.sub(r'\n{3,}', '\n\n', text)
+    # Collapse "79 %" → "79%" (and "79\n%" → "79%") that survived block-tag
+    # joining when SEC wraps a number in a <font> tag separate from the
+    # trailing percent sign.
+    text = re.sub(r'(\d)\s+%', r'\1%', text)
     return text.strip(), all_tables
 
 

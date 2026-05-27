@@ -101,4 +101,33 @@ assert len(new_tables) == 2
 assert new_tables[0] == {'id': 0, 'rows': [['a']], 'colspans': [[1]], 'head_row_count': 0}
 assert new_tables[1] == {'id': 1, 'rows': [['b']], 'colspans': [[1]], 'head_row_count': 0}
 
-print('All 8 tests passed.')
+# ---------- Test 9: inline <font> with number doesn't fragment prose ----------
+# SEC wraps emphasized numbers in inline <font>: "<p>As of date, <font>79</font>% of..."
+# Block-aware whitespace should keep that on one line, and the % collapse should
+# stick "79%" together even though there's a space between "</font>" and "%".
+html9 = (
+    '<html><body>'
+    '<p>As of March 28, 2026, '
+    '<font style="font-weight:400">79</font>'
+    '% of the Company\'s securities had maturities between 1 and 5 years.</p>'
+    '</body></html>'
+)
+text9, _ = clean_html_to_text(html9)
+assert '79%' in text9, f'Test 9: number+% not joined: {text9!r}'
+# Should be on ONE line — no '\n' between the date prefix and the conclusion
+prose_lines = [l for l in text9.split('\n') if 'As of March' in l]
+assert len(prose_lines) == 1, f'Test 9: expected one line containing prefix: {text9!r}'
+prose_line = prose_lines[0]
+assert '79%' in prose_line, f'Test 9: prose still fragmented: {text9!r}'
+assert 'maturities between 1 and 5 years' in prose_line, f'Test 9: tail of sentence on different line: {text9!r}'
+
+# ---------- Test 10: <p> blocks still separate from each other ----------
+html10 = '<html><body><p>First paragraph.</p><p>Second paragraph.</p></body></html>'
+text10, _ = clean_html_to_text(html10)
+assert 'First paragraph.' in text10 and 'Second paragraph.' in text10
+first_idx = text10.index('First paragraph.')
+second_idx = text10.index('Second paragraph.')
+between = text10[first_idx + len('First paragraph.'):second_idx]
+assert '\n' in between, f'Test 10: <p> blocks fused on one line: {text10!r}'
+
+print('All 10 tests passed.')
