@@ -73,7 +73,7 @@ export function SectionNav({ ticker, accession, sections }: Props) {
               ) : textCache[s.sectionKey] === '' ? (
                 <p className="text-sm text-muted-foreground">No text available for this section.</p>
               ) : (
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
                   {textCache[s.sectionKey]}
                 </pre>
               )}
