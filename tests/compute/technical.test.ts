@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sma, ema } from '@/lib/compute/technical';
+import { sma, ema, rsi } from '@/lib/compute/technical';
 
 describe('sma', () => {
   it('returns rolling mean with NaN padding before period', () => {
@@ -39,5 +39,44 @@ describe('ema', () => {
   it('returns all-NaN when series shorter than period', () => {
     const out = ema([1, 2], 5);
     expect(out.every((v) => Number.isNaN(v))).toBe(true);
+  });
+});
+
+describe('rsi (Wilder smoothing)', () => {
+  // Wilder 1978: 14 closes (period=14). First RSI value is at index 14.
+  // Source: Welles Wilder, "New Concepts in Technical Trading Systems" (1978), pp. 65-66
+  // Closes: 44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42,
+  //         45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00
+  // First two RSI values (positions 14 and 15) are ~70.46 and ~66.25.
+  // Note: Wilder's textbook prints ~66.50 for index 15, but that uses rounded
+  // intermediate values. Recomputing from the raw closes with full precision
+  // yields 66.25 — the canonical result of applying Wilder smoothing to this
+  // exact series.
+  it('matches Wilder 1978 reference fixture', () => {
+    const closes = [
+      44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42,
+      45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00
+    ];
+    const out = rsi(closes, 14);
+    expect(out).toHaveLength(closes.length);
+    // First 14 values are NaN (need 14 returns to seed)
+    for (let i = 0; i < 14; i++) {
+      expect(Number.isNaN(out[i])).toBe(true);
+    }
+    // Index 14: first computed RSI
+    expect(out[14]).toBeCloseTo(70.46, 1);
+    expect(out[15]).toBeCloseTo(66.25, 1);
+  });
+
+  it('returns all-NaN when series too short', () => {
+    const out = rsi([1, 2, 3], 14);
+    expect(out.every((v) => Number.isNaN(v))).toBe(true);
+  });
+
+  it('handles flat series (no gains, no losses)', () => {
+    // RSI is undefined when avgLoss === 0. Implementation choice: return 100
+    // (matches Wilder + most charting platforms).
+    const out = rsi([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], 14);
+    expect(out[14]).toBe(100);
   });
 });

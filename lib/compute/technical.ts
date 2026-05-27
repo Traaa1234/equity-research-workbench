@@ -36,3 +36,44 @@ export function ema(values: number[], period: number): number[] {
   }
   return out;
 }
+
+/**
+ * Relative Strength Index using Wilder's smoothing.
+ *
+ *   RSI = 100 - 100 / (1 + RS)
+ *   RS  = avgGain / avgLoss
+ *
+ * The first `period` values are NaN (need `period` returns to seed).
+ * First RSI is at index `period`. Subsequent values use Wilder's smoothing:
+ *   avgGain[i] = (avgGain[i-1] * (period - 1) + gain[i]) / period
+ *
+ * When avgLoss is 0 (no losses in window), returns 100 (convention).
+ */
+export function rsi(closes: number[], period = 14): number[] {
+  const n = closes.length;
+  const out = new Array<number>(n).fill(NaN);
+  if (n <= period) return out;
+
+  // Sum the first `period` gains and losses (over indices 1..period)
+  let gainSum = 0;
+  let lossSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = closes[i]! - closes[i - 1]!;
+    if (change > 0) gainSum += change;
+    else lossSum += -change;
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+
+  // Wilder smoothing for the rest
+  for (let i = period + 1; i < n; i++) {
+    const change = closes[i]! - closes[i - 1]!;
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? -change : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return out;
+}
