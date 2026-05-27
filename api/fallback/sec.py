@@ -86,50 +86,144 @@ def throttled_get(url):
     return session().get(url, timeout=30)
 
 
-def render_table_as_text(table):
-    """Render an HTML table as pipe-separated rows, one row per line.
+def _parse_row(tr):
+    """Parse a single <tr>. Returns (cells_with_placeholders, colspans).
 
-    Empty cells are dropped to avoid noise from layout-padding <td>'s.
-    Internal cell whitespace is collapsed to a single space.
+    cells_with_placeholders: list of strings. For a cell with colspan=N, the
+      cell text appears at index i and empty strings fill the next N-1 slots.
+    colspans: parallel list of ints. Cell span at index i; 0 marks placeholders.
+    """
+    cells = []
+    colspans = []
+    for td in tr.find_all(['td', 'th'], recursive=False):
+        cell_text = td.get_text(' ', strip=True)
+        # Collapse internal whitespace to single space (matches Slice 3.5)
+        cell_text = re.sub(r'\s+', ' ', cell_text).strip()
+        try:
+            span = int(td.get('colspan', '1'))
+            if span < 1:
+                span = 1
+        except (ValueError, TypeError):
+            span = 1
+        cells.append(cell_text)
+        colspans.append(span)
+        for _ in range(span - 1):
+            cells.append('')
+            colspans.append(0)
+    return cells, colspans
+
+
+def _is_all_th_row(tr):
+    """True if every direct child cell in this row is a <th>."""
+    children = tr.find_all(['td', 'th'], recursive=False)
+    return len(children) > 0 and all(c.name == 'th' for c in children)
+
+
+def extract_table_structure(table):
+    """Parse <table> into {rows, colspans, head_row_count}.
+
+    Empty cells preserved (fixes Slice 3.5 column-shift bug). Whitespace in
+    cells collapsed to single spaces. colspans parallel to rows: 1=normal,
+    n>1=spans n cols starting here, 0=covered by previous span.
+    head_row_count counts leading rows from <thead> or all-<th> rows.
     """
     rows = []
-    for tr in table.find_all('tr'):
-        cells = []
-        for td in tr.find_all(['td', 'th']):
-            cell_text = td.get_text(' ', strip=True)
-            # Collapse all internal whitespace to a single space
-            cell_text = re.sub(r'\s+', ' ', cell_text)
-            if cell_text:
-                cells.append(cell_text)
-        if cells:
-            rows.append(' | '.join(cells))
-    return '\n'.join(rows)
+    colspans = []
+    head_row_count = 0
+
+    thead = table.find('thead')
+    thead_trs = thead.find_all('tr') if thead else []
+    for tr in thead_trs:
+        row_cells, row_spans = _parse_row(tr)
+        rows.append(row_cells)
+        colspans.append(row_spans)
+    head_row_count = len(rows)
+
+    # Process remaining <tr>s (either in <tbody> or directly under <table>)
+    tbody = table.find('tbody')
+    if tbody:
+        body_trs = tbody.find_all('tr', recursive=False)
+    else:
+        # All <tr>s not in <thead>
+        body_trs = [tr for tr in table.find_all('tr') if tr not in thead_trs]
+
+    saw_first_body = False
+    for tr in body_trs:
+        row_cells, row_spans = _parse_row(tr)
+        rows.append(row_cells)
+        colspans.append(row_spans)
+        # If no <thead>, but the first row is all <th>, count it as header
+        if head_row_count == 0 and not saw_first_body and _is_all_th_row(tr):
+            head_row_count = 1
+        saw_first_body = True
+
+    return {
+        'rows': rows,
+        'colspans': colspans,
+        'head_row_count': head_row_count,
+    }
 
 
 def clean_html_to_text(html):
-    """Strip noise tags, render tables as pipe-separated rows, return plaintext."""
+    """Strip noise, drop ToC tables, replace remaining tables with markers.
+
+    Returns (text_with_markers, all_tables).
+    text_with_markers: plaintext with `\n<<TABLE_N>>\n` where each <table> was.
+    all_tables: list of {id, rows, colspans, head_row_count} for each kept table.
+    """
     soup = BeautifulSoup(html, 'html.parser')
     for tag in soup(['script', 'style', 'head', 'meta', 'link']):
         tag.decompose()
 
-    # Drop Table of Contents tables (existing behavior — noise, not data)
+    # Drop Table of Contents tables (existing Slice 2A behavior)
     for table in soup.find_all('table'):
-        text = table.get_text(' ', strip=True)
-        if 'table of contents' in text.lower()[:200]:
+        toc_text = table.get_text(' ', strip=True)
+        if 'table of contents' in toc_text.lower()[:200]:
             table.decompose()
 
-    # NEW: replace remaining tables with their flat rendering before get_text()
+    # Replace remaining tables with markers; collect structured data
+    all_tables = []
     for table in soup.find_all('table'):
-        rendered = render_table_as_text(table)
-        replacement = soup.new_string('\n' + rendered + '\n')
-        table.replace_with(replacement)
+        structure = extract_table_structure(table)
+        table_id = len(all_tables)
+        all_tables.append({**structure, 'id': table_id})
+        marker = soup.new_string(f'\n<<TABLE_{table_id}>>\n')
+        table.replace_with(marker)
 
     text = soup.get_text('\n')
     text = re.sub(r'\r\n', '\n', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n[ \t]+', '\n', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip()
+    return text.strip(), all_tables
+
+
+_TABLE_MARKER_RE = re.compile(r'<<TABLE_(\d+)>>')
+
+
+def assign_tables_to_section(section_text, all_tables):
+    """For a section's text slice, find markers, return (new_text, subset_tables).
+
+    Renumbers marker ids starting at 0 in order of first appearance within the
+    section. Subset tables get matching new ids. Markers not present in section
+    are filtered out.
+    """
+    seen = {}  # original_id -> new_id
+    new_tables = []
+    by_id = {t['id']: t for t in all_tables}
+
+    def repl(m):
+        original_id = int(m.group(1))
+        if original_id not in seen:
+            new_id = len(seen)
+            seen[original_id] = new_id
+            original = by_id.get(original_id)
+            if original is not None:
+                new_tables.append({**original, 'id': new_id})
+        return f'<<TABLE_{seen[original_id]}>>'
+
+    new_text = _TABLE_MARKER_RE.sub(repl, section_text)
+    return new_text, new_tables
 
 
 def extract_sections(text, form_type):
@@ -243,13 +337,18 @@ def fetch_filing(primary_url, form_type):
     if not resp.ok:
         return 500, {"error": f"SEC unexpected {resp.status_code}", "kind": "Unknown"}
     html = resp.text
-    text = clean_html_to_text(html)
-    sections = extract_sections(text, form_type)
+    text_with_markers, all_tables = clean_html_to_text(html)
+    sections = extract_sections(text_with_markers, form_type)
+    # Attach per-section tables, renumbering markers
+    for s in sections:
+        new_text, new_tables = assign_tables_to_section(s['text'], all_tables)
+        s['text'] = new_text
+        s['tables'] = new_tables
     return 200, {
         "formType": form_type,
         "primaryDocUrl": primary_url,
         "sections": sections,
-        "totalChars": len(text)
+        "totalChars": len(text_with_markers)
     }
 
 
