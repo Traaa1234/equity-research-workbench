@@ -168,3 +168,13 @@ export interface EmbeddingsResult {
 export interface EmbeddingsProvider {
   embed(req: EmbeddingsRequest): Promise<EmbeddingsResult>;
 }
+
+// News article metadata as returned by Financial Datasets /news endpoint.
+// FD provides metadata only — no article body.
+export interface NewsArticleMeta {
+  ticker: string;
+  title: string;
+  source: string;
+  date: string;   // ISO 8601 with timezone, e.g. "2026-05-27T11:53:25+00:00"
+  url: string;
+}

@@ -1,0 +1,25 @@
+{
+  "news": [
+    {
+      "ticker": "AAPL",
+      "title": "Analysts Offer Insights on Technology Companies: Apple (AAPL), Marvell (MRVL) and F5, Inc. (FFIV)",
+      "source": "The Globe and Mail",
+      "date": "2026-05-27T11:53:25+00:00",
+      "url": "https://www.theglobeandmail.com/example-1"
+    },
+    {
+      "ticker": "AAPL",
+      "title": "Verdence Capital Advisors LLC Lowers Position in Apple Inc.",
+      "source": "MarketBeat",
+      "date": "2026-05-27T11:14:56+00:00",
+      "url": "https://www.marketbeat.com/example-2"
+    },
+    {
+      "ticker": "AAPL",
+      "title": "Beirne Wealth Consulting Services LLC Sells 6,254 Shares of Apple Inc.",
+      "source": "MarketBeat",
+      "date": "2026-05-27T07:42:32+00:00",
+      "url": "https://www.marketbeat.com/example-3"
+    }
+  ]
+}

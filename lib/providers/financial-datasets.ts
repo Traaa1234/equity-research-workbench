@@ -1,6 +1,7 @@
 import {
   CompanyData,
   EarningsPoint,
+  NewsArticleMeta,
   NotFoundError,
   PeriodType,
   PricePoint,
@@ -171,6 +172,13 @@ export class FinancialDatasetsProvider implements Provider {
       price1dPct: null,
       price5dPct: null
     }));
+  }
+
+  async news(ticker: string, limit: number): Promise<NewsArticleMeta[]> {
+    const out = await this.request<{ news?: NewsArticleMeta[] }>(
+      `/news?ticker=${encodeURIComponent(ticker.toUpperCase())}&limit=${limit}`
+    );
+    return out.news ?? [];
   }
 
   // ----- HTTP plumbing -----

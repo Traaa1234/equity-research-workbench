@@ -208,6 +208,54 @@ describe('FinancialDatasetsProvider', () => {
     });
   });
 
+  describe('.news()', () => {
+    it('returns NewsArticleMeta[] from the /news endpoint', async () => {
+      const fix = loadFixture('fd-news-aapl.json');
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const result = await provider.news('AAPL', 100);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const calledUrl = fetchMock.mock.calls[0]![0] as string;
+      expect(calledUrl).toContain('/news?ticker=AAPL&limit=100');
+      expect(result).toHaveLength(3);
+      expect(result[0]).toEqual({
+        ticker: 'AAPL',
+        title: 'Analysts Offer Insights on Technology Companies: Apple (AAPL), Marvell (MRVL) and F5, Inc. (FFIV)',
+        source: 'The Globe and Mail',
+        date: '2026-05-27T11:53:25+00:00',
+        url: 'https://www.theglobeandmail.com/example-1'
+      });
+    });
+
+    it('returns empty array when API returns no news', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ news: [] }));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.news('UNKNOWN', 100);
+      expect(result).toEqual([]);
+    });
+
+    it('handles missing news field defensively', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.news('AAPL', 100);
+      expect(result).toEqual([]);
+    });
+
+    it('maps 404 to NotFoundError', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 404 }));
+      const provider = makeProvider(fetchMock);
+      await expect(provider.news('AAPL', 100)).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it('maps 429 to RateLimitError', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
+      const provider = makeProvider(fetchMock);
+      await expect(provider.news('AAPL', 100)).rejects.toBeInstanceOf(RateLimitError);
+    });
+  });
+
   describe('retry behavior', () => {
     it('retries on RateLimitError and succeeds on second attempt', async () => {
       vi.useFakeTimers();
