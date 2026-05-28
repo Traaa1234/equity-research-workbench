@@ -28,6 +28,7 @@
     "try-summarize": "tsx scripts/try-summarize.ts",
     "try-search": "tsx scripts/try-search.ts",
     "try-ask": "tsx scripts/try-ask.ts",
+    "try-news": "tsx scripts/try-news.ts",
     "embed-existing": "tsx scripts/embed-existing.ts",
     "reparse": "tsx scripts/reparse-existing.ts"
   },
