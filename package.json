@@ -30,7 +30,8 @@
     "try-ask": "tsx scripts/try-ask.ts",
     "try-news": "tsx scripts/try-news.ts",
     "embed-existing": "tsx scripts/embed-existing.ts",
-    "reparse": "tsx scripts/reparse-existing.ts"
+    "reparse": "tsx scripts/reparse-existing.ts",
+    "refresh-fundamentals": "tsx scripts/refresh-fundamentals.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
