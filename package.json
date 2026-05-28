@@ -29,6 +29,7 @@
     "try-search": "tsx scripts/try-search.ts",
     "try-ask": "tsx scripts/try-ask.ts",
     "try-news": "tsx scripts/try-news.ts",
+    "try-insiders": "tsx scripts/try-insiders.ts",
     "embed-existing": "tsx scripts/embed-existing.ts",
     "reparse": "tsx scripts/reparse-existing.ts",
     "refresh-fundamentals": "tsx scripts/refresh-fundamentals.ts"
