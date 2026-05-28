@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   piotroskiFScore,
+  altmanZScore,
   type AnnualFinancials
 } from '@/lib/compute/quality';
 
@@ -89,5 +90,49 @@ describe('piotroskiFScore', () => {
       'Higher gross margin YoY',
       'Higher asset turnover YoY'
     ]);
+  });
+});
+
+describe('altmanZScore', () => {
+  // Original 1968 formula: Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
+
+  it('returns "safe" zone for healthy fixture', () => {
+    const f: AnnualFinancials = {
+      ...emptyFinancials('2025-09-27'),
+      currentAssets: 400, currentLiabilities: 200,
+      totalAssets: 1000, retainedEarnings: 500, ebit: 200,
+      totalLiabilities: 400, revenue: 1500
+    };
+    const marketCap = 5000;
+    const r = altmanZScore(f, marketCap);
+    expect(r).not.toBeNull();
+    expect(r!.score).toBeGreaterThan(2.99);
+    expect(r!.zone).toBe('safe');
+  });
+
+  it('returns "distress" zone for highly-leveraged near-insolvent fixture', () => {
+    const f: AnnualFinancials = {
+      ...emptyFinancials('2025-09-27'),
+      currentAssets: 50, currentLiabilities: 200,    // negative working capital
+      totalAssets: 1000, retainedEarnings: -100,     // accumulated losses
+      ebit: 20,                                       // barely profitable
+      totalLiabilities: 900, revenue: 400
+    };
+    const marketCap = 200;                            // small mkt cap vs liabs
+    const r = altmanZScore(f, marketCap);
+    expect(r).not.toBeNull();
+    expect(r!.score).toBeLessThan(1.81);
+    expect(r!.zone).toBe('distress');
+  });
+
+  it('returns null when retained earnings is missing', () => {
+    const f: AnnualFinancials = {
+      ...emptyFinancials('2025-09-27'),
+      currentAssets: 400, currentLiabilities: 200,
+      totalAssets: 1000, retainedEarnings: null,     // missing
+      ebit: 200, totalLiabilities: 400, revenue: 1500
+    };
+    const r = altmanZScore(f, 5000);
+    expect(r).toBeNull();
   });
 });

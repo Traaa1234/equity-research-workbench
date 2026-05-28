@@ -96,3 +96,60 @@ export function piotroskiFScore(
   const score = tests.filter((t) => t.passed).length;
   return { score, tests };
 }
+
+export type AltmanZone = 'safe' | 'caution' | 'distress';
+
+export interface AltmanResult {
+  score: number;
+  zone: AltmanZone;
+  components: { a: number; b: number; c: number; d: number; e: number };
+}
+
+/**
+ * Altman Z-Score (1968 model for public manufacturers).
+ *
+ *   Z = 1.2·A + 1.4·B + 3.3·C + 0.6·D + 1.0·E
+ *
+ *   A = Working capital / Total assets
+ *   B = Retained earnings / Total assets
+ *   C = EBIT / Total assets
+ *   D = Market value of equity / Total liabilities
+ *   E = Sales / Total assets
+ *
+ * Zones: Z > 2.99 safe, 1.81 < Z < 2.99 caution, Z < 1.81 distress.
+ * Best-suited for non-financial manufacturers — UI footnote warns.
+ *
+ * Returns null when any required input is missing.
+ */
+export function altmanZScore(
+  f: AnnualFinancials,
+  marketCap: number
+): AltmanResult | null {
+  if (
+    !isFiniteNum(f.currentAssets) ||
+    !isFiniteNum(f.currentLiabilities) ||
+    !isFiniteNum(f.totalAssets) ||
+    !isFiniteNum(f.retainedEarnings) ||
+    !isFiniteNum(f.ebit) ||
+    !isFiniteNum(f.totalLiabilities) ||
+    !isFiniteNum(f.revenue) ||
+    !isFiniteNum(marketCap) ||
+    f.totalAssets === 0 ||
+    f.totalLiabilities === 0
+  ) {
+    return null;
+  }
+
+  const workingCapital = f.currentAssets - f.currentLiabilities;
+  const a = workingCapital / f.totalAssets;
+  const b = f.retainedEarnings / f.totalAssets;
+  const c = f.ebit / f.totalAssets;
+  const d = marketCap / f.totalLiabilities;
+  const e = f.revenue / f.totalAssets;
+
+  const score = 1.2 * a + 1.4 * b + 3.3 * c + 0.6 * d + 1.0 * e;
+  const zone: AltmanZone =
+    score > 2.99 ? 'safe' : score < 1.81 ? 'distress' : 'caution';
+
+  return { score, zone, components: { a, b, c, d, e } };
+}
