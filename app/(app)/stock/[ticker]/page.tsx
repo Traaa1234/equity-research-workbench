@@ -23,7 +23,9 @@ import { ReturnsCard } from './_components/returns-card';
 import { GrowthCard } from './_components/growth-card';
 import { ValuationCard } from './_components/valuation-card';
 import { EarningsCard } from './_components/earnings-card';
+import { QualityCard } from './_components/quality-card';
 import { NotesEditor } from './_components/notes-editor';
+import { loadQuality } from '@/lib/services/quality';
 
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 
@@ -48,12 +50,13 @@ export default async function StockPage({ params }: PageProps) {
   const pricesSvc = new PricesService({ db, primary: fd, fallback: yf, redis });
   const financialsSvc = new FinancialsService({ db, primary: fd, fallback: yf, redis });
 
-  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle] = await Promise.all([
+  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle, quality] = await Promise.all([
     snapshotSvc.get(ticker).catch(() => null),
     pricesSvc.get(ticker, '5Y').catch(() => []),
     financialsSvc.get(ticker, 'income', 'annual').catch(() => ({ ticker, statementType: 'income' as const, periodType: 'annual' as const, rows: [] })),
     financialsSvc.get(ticker, 'balance', 'annual').catch(() => ({ ticker, statementType: 'balance' as const, periodType: 'annual' as const, rows: [] })),
-    financialsSvc.get(ticker, 'cash_flow', 'annual').catch(() => ({ ticker, statementType: 'cash_flow' as const, periodType: 'annual' as const, rows: [] }))
+    financialsSvc.get(ticker, 'cash_flow', 'annual').catch(() => ({ ticker, statementType: 'cash_flow' as const, periodType: 'annual' as const, rows: [] })),
+    loadQuality(db, ticker).catch(() => ({ current: { piotroskiF: null, altmanZ: null, beneishM: null }, trend: [] }))
   ]);
 
   const returnsSeries = buildReturnsSeries(incomeBundle.rows, balanceBundle.rows);
@@ -94,9 +97,10 @@ export default async function StockPage({ params }: PageProps) {
         <ValuationCard valuation={valuationSummary} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <GrowthCard growth={growthSummary} />
         <EarningsCard ticker={ticker} />
+        <QualityCard ticker={ticker} quality={quality} />
       </div>
 
       <ReturnsCard series={returnsSeries} />
