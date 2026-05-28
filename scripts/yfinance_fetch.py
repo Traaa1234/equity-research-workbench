@@ -218,6 +218,11 @@ INCOME_MAP = {
     "Net Income Common Stockholders": "net_income",
     "Basic EPS": "earnings_per_share",
     "Diluted EPS": "earnings_per_share",
+    # Slice: quality screens
+    "Selling General And Administration": "selling_general_admin",
+    "Selling General And Administrative": "selling_general_admin",
+    "Reconciled Depreciation": "depreciation_amortization",
+    "Depreciation And Amortization": "depreciation_amortization",
 }
 
 BALANCE_MAP = {
@@ -231,6 +236,17 @@ BALANCE_MAP = {
     "Long Term Debt": "long_term_debt",
     "Current Debt": "short_term_debt",
     "Short Long Term Debt": "short_term_debt",
+    # Slice: quality screens
+    "Current Assets": "current_assets",
+    "Total Current Assets": "current_assets",
+    "Current Liabilities": "current_liabilities",
+    "Total Current Liabilities": "current_liabilities",
+    "Retained Earnings": "retained_earnings",
+    "Accounts Receivable": "accounts_receivable",
+    "Receivables": "accounts_receivable",
+    "Net PPE": "property_plant_equipment_net",
+    "Net Property Plant And Equipment": "property_plant_equipment_net",
+    "Property Plant And Equipment Net": "property_plant_equipment_net",
 }
 
 CASH_FLOW_MAP = {
@@ -319,6 +335,25 @@ def fetch_statements(ticker: str, kind: str, period: str) -> dict:
     fx_by_period = get_fx_rate_history(financial_ccy, listing_ccy, period_ends)
 
     rows = _statements_from_df(df, mapping, fx_by_period)
+
+    # Slice quality screens: yfinance exposes shares_outstanding as a scalar in
+    # `info`, not as a DataFrame row. Inject it for each period_end so Piotroski
+    # test 7 (no-dilution) can be computed. yfinance only provides the latest
+    # value, so all periods get the same number — YoY comparisons will be flat
+    # (test passes by default) until ingestion is upgraded to historical shares
+    # data. Acceptable tradeoff; flagged in spec.
+    if kind == "income":
+        shares = num_or_none(info.get("sharesOutstanding") or info.get("ordinarySharesNumber"))
+        if shares is not None:
+            existing_period_ends = {r["periodEnd"] for r in rows}
+            for pe in existing_period_ends:
+                rows.append({
+                    "periodEnd": pe,
+                    "lineItem": "shares_outstanding",
+                    "value": shares,
+                    "currency": "USD"
+                })
+
     return {
         "ticker": ticker,
         "statementType": kind,
