@@ -212,3 +212,23 @@ export interface InsiderTradeMeta {
   security_title: string | null;
   filing_date: string;
 }
+
+// Institutional holding entry as returned by Financial Datasets /institutional-ownership/ endpoint.
+// Field names use snake_case to match the API wire format.
+// Note: FD's response does not reliably include a CIK field — the service
+// derives a deterministic `investorId` (CIK when available, normalized name otherwise).
+export interface HoldingsMeta {
+  ticker: string;
+  investor: string;                          // investor / fund name as reported by FD
+  report_period: string;                     // ISO YYYY-MM-DD, quarter-end
+  shares: number;
+  market_value: number | null;
+  price: number | null;
+  is_active: boolean;
+  url: string | null;
+  // Optional fields that FD may include — service handles their absence:
+  cik?: string | null;
+  shares_pct_of_portfolio?: number | null;
+  shares_pct_of_shareholders?: number | null;
+  filing_date?: string | null;
+}
