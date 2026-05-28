@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { DashboardTabs } from '../_components/dashboard-tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { requireUserId } from '@/lib/auth/current-user';
@@ -59,28 +60,7 @@ export default async function FinancialsPage({ params, searchParams }: PageProps
           <h1 className="text-3xl font-bold tracking-tight">{ticker}</h1>
           <p className="text-sm text-muted-foreground">{existing[0]!.name}</p>
         </div>
-        <Tabs value="financials" className="hidden sm:block">
-          <TabsList>
-            <TabsTrigger value="overview" asChild>
-              <Link href={`/stock/${ticker}`}>Overview</Link>
-            </TabsTrigger>
-            <TabsTrigger value="financials" asChild>
-              <Link href={`/stock/${ticker}/financials`}>Financials</Link>
-            </TabsTrigger>
-            <TabsTrigger value="technical" asChild>
-              <Link href={`/stock/${ticker}/technical`}>Technical</Link>
-            </TabsTrigger>
-            <TabsTrigger value="news" asChild>
-              <Link href={`/stock/${ticker}/news`}>News</Link>
-            </TabsTrigger>
-            <TabsTrigger value="filings" asChild>
-              <Link href={`/stock/${ticker}/filings`}>Filings</Link>
-            </TabsTrigger>
-            <TabsTrigger value="ask" asChild>
-              <Link href={`/stock/${ticker}/ask`}>Ask</Link>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <DashboardTabs ticker={ticker} active="financials" />
       </header>
 
       <Tabs value={period}>
