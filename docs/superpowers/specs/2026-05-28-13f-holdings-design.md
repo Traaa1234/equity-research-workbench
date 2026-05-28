@@ -84,7 +84,7 @@ export const institutionalHoldings = pgTable(
     id: bigserial('id', { mode: 'bigint' }).primaryKey(),
     ticker: text('ticker').notNull()
       .references(() => companies.ticker, { onDelete: 'cascade' }),
-    investorCik: text('investor_cik').notNull(),
+    investorId: text('investor_id').notNull(),
     investorName: text('investor_name').notNull(),
     reportPeriod: date('report_period').notNull(),                // quarter-end
     shares: numeric('shares', { precision: 20, scale: 4 }).notNull(),
@@ -96,17 +96,18 @@ export const institutionalHoldings = pgTable(
   },
   (t) => ({
     dedupeKey: uniqueIndex('institutional_holdings_dedupe')
-      .on(t.ticker, t.investorCik, t.reportPeriod),
+      .on(t.ticker, t.investorId, t.reportPeriod),
     tickerPeriodIdx: index('institutional_holdings_ticker_period_idx')
       .on(t.ticker, t.reportPeriod.desc()),
-    tickerCikIdx: index('institutional_holdings_ticker_cik_idx')
-      .on(t.ticker, t.investorCik, t.reportPeriod.desc())          // QoQ delta queries
+    tickerInvestorIdx: index('institutional_holdings_ticker_investor_idx')
+      .on(t.ticker, t.investorId, t.reportPeriod.desc())          // QoQ delta queries
   })
 );
 ```
 
 **Invariants:**
-- `(ticker, investorCik, reportPeriod)` is unique. A fund holds a ticker exactly once per quarter; refresh uses `onConflictDoNothing` for idempotency.
+- `(ticker, investorId, reportPeriod)` is unique. A fund holds a ticker exactly once per quarter; refresh uses `onConflictDoNothing` for idempotency.
+- `investorId` is "the SEC CIK when FD provides one (10-digit zero-padded), otherwise a deterministic normalized form of the investor name" (uppercased, whitespace-collapsed, punctuation-stripped). This makes the dedupe key stable across refreshes even when FD's response shape varies. The compute layer uses `investorId` for CIK-style matching and falls back to `investorName` canonical-form comparison for the smart-money list.
 - `shares` is NOT NULL. Negative or non-finite shares get skipped (and warn-logged) at the service boundary — same defensive pattern that caught MSFT's null-shares hotfix in Insider Trades.
 - Window enforcement: refresh prunes rows with `reportPeriod < (newest reportPeriod for ticker - 8 quarters)` in the same call. Bounds storage.
 
@@ -142,7 +143,11 @@ export interface HoldingsMeta {
 }
 ```
 
-**CIK normalization:** SEC CIKs are 10-digit zero-padded strings. FD does not always include the CIK in the response payload (the field varies by endpoint). When CIK is absent, the service falls back to deterministic name-based matching via uppercased+normalized investor name. The smart-money list stores both CIK and canonical-name variants for resilience. Verified against the live FD response shape during T2.
+**Investor identification:** SEC CIKs are 10-digit zero-padded strings. FD does not reliably include CIK in the `/institutional-ownership/` response. The service derives `investorId` deterministically:
+- If FD returns a CIK-shaped field → zero-pad to 10 digits and use as `investorId`.
+- Otherwise → compute a `normalizedInvestorName` (uppercase, collapse whitespace, strip punctuation, drop common suffixes like `, LLC`, ` INC`, `& CO`) and use that as `investorId`.
+
+The smart-money list stores both CIK and canonical-name variants so matching works regardless of which form ends up in `investorId`. The actual FD response shape is verified at T2 implementation time against a real fixture; the spec assumes the worst case (CIK absent) so the design is robust either way.
 
 ## Compute layer
 
@@ -153,7 +158,7 @@ export type HolderDelta = 'new' | 'added' | 'reduced' | 'sold-out' | 'unchanged'
 export type SmartMoneyCategory = 'value' | 'macro' | 'quant' | 'growth' | 'activist';
 
 export interface HoldingsRow {
-  investorCik: string;
+  investorId: string;
   investorName: string;
   reportPeriod: string;
   shares: number;
@@ -162,7 +167,7 @@ export interface HoldingsRow {
 }
 
 export interface HolderWithDelta {
-  investorCik: string;
+  investorId: string;
   investorName: string;
   shares: number;
   marketValue: number | null;
@@ -223,12 +228,18 @@ export interface SmartMoneyEntry {
 export const SMART_MONEY: ReadonlyArray<SmartMoneyEntry>;
 
 export function matchSmartMoney(
-  cik: string | null,
+  investorId: string,
   investorName: string
 ): SmartMoneyEntry | null;
+
+export function normalizeInvestorName(raw: string): string;
 ```
 
-Initial ~30 entries spanning the categories: Berkshire Hathaway, Renaissance Technologies, Tiger Global Management, Pershing Square Capital, Citadel Advisors, Bridgewater Associates, Two Sigma, ARK Investment Management, Baupost Group, Greenlight Capital, Third Point, Soros Fund Management, Davis Selected Advisers, Lone Pine Capital, Coatue Management, Viking Global Investors, D.E. Shaw & Co., Millennium Management, AQR Capital Management, Appaloosa Management, Maverick Capital, Lansdowne Partners, Marshall Wace, Point72 Asset Management, Elliott Investment Management, Children's Investment Fund Management, Eminence Capital, Hound Partners, Glenview Capital, Sequoia Fund. Verified CIK numbers from SEC EDGAR; canonical-name variants based on observed FD response strings.
+Initial ~30 entries spanning the categories: Berkshire Hathaway, Renaissance Technologies, Tiger Global Management, Pershing Square Capital, Citadel Advisors, Bridgewater Associates, Two Sigma, ARK Investment Management, Baupost Group, Greenlight Capital, Third Point, Soros Fund Management, Davis Selected Advisers, Lone Pine Capital, Coatue Management, Viking Global Investors, D.E. Shaw & Co., Millennium Management, AQR Capital Management, Appaloosa Management, Maverick Capital, Lansdowne Partners, Marshall Wace, Point72 Asset Management, Elliott Investment Management, Children's Investment Fund Management, Eminence Capital, Hound Partners, Glenview Capital, Sequoia Fund.
+
+**Implementer note (T3):** CIK numbers for the smart-money list should be looked up from SEC EDGAR (e.g. `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=Berkshire`) at build time and verified once. Canonical-name variants should be added as observed in the FD response (caught during T8 populate against the 6 watchlist tickers). The list is a tracked code constant — easy to extend in a small follow-up PR if a new variant shows up.
+
+**Risks and mitigations** (also see below) discusses the normalization risk.
 
 ## Service layer
 
@@ -370,7 +381,7 @@ Final task in the plan covers:
 ## Risks and mitigations
 
 - **FD response shape uncertainty.** Wire format is inferred from FD's `/institutional-ownership/` documented schema; T2 verifies with a real fixture. If shape differs, adjust `HoldingsMeta` and the fixture. Same risk pattern handled successfully in Slice 5B (news) and Insider Trades.
-- **CIK normalization.** Funds can be reported by FD with or without CIK, with leading-zero variation, or under multiple legal-entity names. The smart-money matcher uses CIK first with `padStart(10, '0')` normalization, falls back to canonical-name matching with an alias list. `matchSmartMoney` returns null on miss, not a throw — non-matches are the common case.
+- **Investor ID stability.** Funds can be reported by FD with or without CIK, with leading-zero variation, or under multiple legal-entity names. The service derives `investorId` deterministically (`padStart(10, '0')` when CIK-shaped, otherwise `normalizeInvestorName` over the raw name). `matchSmartMoney` checks against both CIK and canonical-name variants in the curated list. `matchSmartMoney` returns null on miss, not a throw — non-matches are the common case.
 - **Stale data perception.** A Q1 13F is published in mid-May; the Overview card shows "As of YYYY-MM-DD" prominently, and the /holdings page header date is part of the visual hierarchy. UI does not silently imply real-time data.
 - **GOOGL / JD paywall.** Expected based on FD's coverage gaps for those tickers (same as news + insiders). Empty-state UI handles it gracefully.
 - **Storage growth.** 8-quarter prune in every refresh bounds it. Worst case for AAPL-tier popularity: ~1500 holders × 8 quarters = 12k rows. Negligible.
