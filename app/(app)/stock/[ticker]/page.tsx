@@ -26,6 +26,8 @@ import { EarningsCard } from './_components/earnings-card';
 import { QualityCard } from './_components/quality-card';
 import { NotesEditor } from './_components/notes-editor';
 import { loadQuality } from '@/lib/services/quality';
+import { InsiderCard } from './_components/insider-card';
+import { InsidersService } from '@/lib/services/insiders';
 
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 
@@ -49,14 +51,22 @@ export default async function StockPage({ params }: PageProps) {
   const snapshotSvc = new SnapshotService({ db, primary: fd, fallback: yf, redis });
   const pricesSvc = new PricesService({ db, primary: fd, fallback: yf, redis });
   const financialsSvc = new FinancialsService({ db, primary: fd, fallback: yf, redis });
+  const insidersSvc = new InsidersService({ db, fdProvider: fd });
 
-  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle, quality] = await Promise.all([
+  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle, quality, insiderAggregate, insiderHasData] = await Promise.all([
     snapshotSvc.get(ticker).catch(() => null),
     pricesSvc.get(ticker, '5Y').catch(() => []),
     financialsSvc.get(ticker, 'income', 'annual').catch(() => ({ ticker, statementType: 'income' as const, periodType: 'annual' as const, rows: [] })),
     financialsSvc.get(ticker, 'balance', 'annual').catch(() => ({ ticker, statementType: 'balance' as const, periodType: 'annual' as const, rows: [] })),
     financialsSvc.get(ticker, 'cash_flow', 'annual').catch(() => ({ ticker, statementType: 'cash_flow' as const, periodType: 'annual' as const, rows: [] })),
-    loadQuality(db, ticker).catch(() => ({ current: { piotroskiF: null, altmanZ: null, beneishM: null }, trend: [] }))
+    loadQuality(db, ticker).catch(() => ({ current: { piotroskiF: null, altmanZ: null, beneishM: null }, trend: [] })),
+    insidersSvc.getAggregate(ticker, 90).catch(() => ({
+      windowDays: 90, netShares: 0, netDollarValue: 0,
+      buyCount: 0, sellCount: 0, uniqueBuyers: 0, uniqueSellers: 0,
+      largestBuy: null, largestSell: null,
+      hasClusterBuy: false, clusterBuyDates: [], lastTransactionDate: null
+    })),
+    insidersSvc.getList(ticker, 1).then((rows) => rows.length > 0).catch(() => false)
   ]);
 
   const returnsSeries = buildReturnsSeries(incomeBundle.rows, balanceBundle.rows);
@@ -101,6 +111,10 @@ export default async function StockPage({ params }: PageProps) {
         <GrowthCard growth={growthSummary} />
         <EarningsCard ticker={ticker} />
         <QualityCard ticker={ticker} quality={quality} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <InsiderCard ticker={ticker} aggregate={insiderAggregate} hasAnyData={insiderHasData} />
       </div>
 
       <ReturnsCard series={returnsSeries} />
