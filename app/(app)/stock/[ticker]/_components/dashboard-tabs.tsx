@@ -7,6 +7,7 @@ export type DashboardTab =
   | 'technical'
   | 'news'
   | 'insiders'
+  | 'holdings'
   | 'filings'
   | 'quality'
   | 'ask';
@@ -22,6 +23,7 @@ const TABS: Array<{ value: DashboardTab; label: string; href: (t: string) => str
   { value: 'technical',  label: 'Technical',  href: (t) => `/stock/${t}/technical` },
   { value: 'news',       label: 'News',       href: (t) => `/stock/${t}/news` },
   { value: 'insiders',   label: 'Insiders',   href: (t) => `/stock/${t}/insiders` },
+  { value: 'holdings',   label: 'Holdings',   href: (t) => `/stock/${t}/holdings` },
   { value: 'filings',    label: 'Filings',    href: (t) => `/stock/${t}/filings` },
   { value: 'quality',    label: 'Quality',    href: (t) => `/stock/${t}/quality` },
   { value: 'ask',        label: 'Ask',        href: (t) => `/stock/${t}/ask` }

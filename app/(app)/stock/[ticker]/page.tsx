@@ -28,6 +28,8 @@ import { NotesEditor } from './_components/notes-editor';
 import { loadQuality } from '@/lib/services/quality';
 import { InsiderCard } from './_components/insider-card';
 import { InsidersService } from '@/lib/services/insiders';
+import { HoldingsCard } from './_components/holdings-card';
+import { HoldingsService } from '@/lib/services/holdings';
 
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 
@@ -52,8 +54,9 @@ export default async function StockPage({ params }: PageProps) {
   const pricesSvc = new PricesService({ db, primary: fd, fallback: yf, redis });
   const financialsSvc = new FinancialsService({ db, primary: fd, fallback: yf, redis });
   const insidersSvc = new InsidersService({ db, fdProvider: fd });
+  const holdingsSvc = new HoldingsService({ db, fdProvider: fd });
 
-  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle, quality, insiderAggregate, insiderHasData] = await Promise.all([
+  const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle, quality, insiderAggregate, insiderHasData, holdingsAggregate, holdingsHasData] = await Promise.all([
     snapshotSvc.get(ticker).catch(() => null),
     pricesSvc.get(ticker, '5Y').catch(() => []),
     financialsSvc.get(ticker, 'income', 'annual').catch(() => ({ ticker, statementType: 'income' as const, periodType: 'annual' as const, rows: [] })),
@@ -66,7 +69,15 @@ export default async function StockPage({ params }: PageProps) {
       largestBuy: null, largestSell: null,
       hasClusterBuy: false, clusterBuyDates: [], lastTransactionDate: null
     })),
-    insidersSvc.getList(ticker, 1).then((rows) => rows.length > 0).catch(() => false)
+    insidersSvc.getList(ticker, 1).then((rows) => rows.length > 0).catch(() => false),
+    holdingsSvc.getAggregate(ticker).catch(() => ({
+      currentPeriod: null, previousPeriod: null,
+      totalHolders: 0, totalSharesHeld: 0, totalMarketValue: 0,
+      top10Concentration: 0, breadthTrend: [],
+      newPositions: 0, exits: 0,
+      smartMoneyMoves: { additions: [], reductions: [] }
+    })),
+    holdingsSvc.listAvailablePeriods(ticker).then((p) => p.length > 0).catch(() => false)
   ]);
 
   const returnsSeries = buildReturnsSeries(incomeBundle.rows, balanceBundle.rows);
@@ -115,6 +126,7 @@ export default async function StockPage({ params }: PageProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <InsiderCard ticker={ticker} aggregate={insiderAggregate} hasAnyData={insiderHasData} />
+        <HoldingsCard ticker={ticker} aggregate={holdingsAggregate} hasAnyData={holdingsHasData} />
       </div>
 
       <ReturnsCard series={returnsSeries} />
