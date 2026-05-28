@@ -8,7 +8,10 @@ import type {
 } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 
-const REFRESH_FETCH_LIMIT = 100;
+// FD's /news endpoint hard-caps at limit=10. Confirmed by probing the live API.
+// (The MCP version of FD wraps a different path that accepts higher limits, but
+// the direct HTTP API used here is capped at 10.)
+const REFRESH_FETCH_LIMIT = 10;
 const SCORING_PROMPT_VERSION = 'v1';
 const SCORING_MODEL = 'qwen-turbo';
 
