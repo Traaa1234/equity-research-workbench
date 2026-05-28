@@ -64,6 +64,13 @@
       "when": 1779903349819,
       "tag": "0008_magenta_wolverine",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779933903453,
+      "tag": "0009_simple_legion",
+      "breakpoints": true
     }
   ]
 }

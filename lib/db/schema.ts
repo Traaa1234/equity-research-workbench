@@ -289,3 +289,27 @@ export const qaHistory = pgTable(
     userCreatedIdx: index('qa_history_user_created_idx').on(t.userId, t.createdAt.desc())
   })
 );
+
+export const newsArticles = pgTable(
+  'news_articles',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    ticker: text('ticker')
+      .notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    title: text('title').notNull(),
+    source: text('source').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    sentiment: text('sentiment'),                                       // 'bullish' | 'neutral' | 'bearish' | null
+    confidence: numeric('confidence', { precision: 4, scale: 3 }),
+    scoredAt: timestamp('scored_at', { withTimezone: true }),
+    scoringModel: text('scoring_model'),
+    scoringPromptVersion: text('scoring_prompt_version')
+  },
+  (t) => ({
+    tickerUrlUniq: uniqueIndex('news_articles_ticker_url_uniq').on(t.ticker, t.url),
+    tickerDateIdx: index('news_articles_ticker_date_idx').on(t.ticker, t.publishedAt.desc())
+  })
+);
