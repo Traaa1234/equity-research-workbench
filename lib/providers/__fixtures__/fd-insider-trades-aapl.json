@@ -1,0 +1,52 @@
+{
+  "insider_trades": [
+    {
+      "ticker": "AAPL",
+      "issuer": "Apple Inc.",
+      "name": "Ben Borders",
+      "title": "Principal Accounting Officer",
+      "is_board_director": false,
+      "transaction_date": "2026-05-08",
+      "transaction_type": "Open market sale",
+      "transaction_shares": 1274,
+      "transaction_price_per_share": 290,
+      "transaction_value": 369460,
+      "shares_owned_before_transaction": 39987,
+      "shares_owned_after_transaction": 38713,
+      "security_title": "Common Stock",
+      "filing_date": "2026-05-08"
+    },
+    {
+      "ticker": "AAPL",
+      "issuer": "Apple Inc.",
+      "name": "Arthur D Levinson",
+      "title": null,
+      "is_board_director": true,
+      "transaction_date": "2026-05-06",
+      "transaction_type": "Open market sale",
+      "transaction_shares": 149527,
+      "transaction_price_per_share": 284.57,
+      "transaction_value": 42550898.39,
+      "shares_owned_before_transaction": 4069576,
+      "shares_owned_after_transaction": 3920049,
+      "security_title": "Common Stock",
+      "filing_date": "2026-05-06"
+    },
+    {
+      "ticker": "AAPL",
+      "issuer": "Apple Inc.",
+      "name": "Tim Cook",
+      "title": "CEO",
+      "is_board_director": true,
+      "transaction_date": "2026-02-15",
+      "transaction_type": "Award",
+      "transaction_shares": 100000,
+      "transaction_price_per_share": null,
+      "transaction_value": null,
+      "shares_owned_before_transaction": 3220000,
+      "shares_owned_after_transaction": 3320000,
+      "security_title": "Common Stock",
+      "filing_date": "2026-02-15"
+    }
+  ]
+}

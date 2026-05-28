@@ -193,3 +193,22 @@ export interface NewsArticleMeta {
   date: string;   // ISO 8601 with timezone, e.g. "2026-05-27T11:53:25+00:00"
   url: string;
 }
+
+// Insider trade transaction as returned by Financial Datasets /insider-trades/ endpoint.
+// Field names use snake_case to match the API wire format.
+export interface InsiderTradeMeta {
+  ticker: string;
+  issuer: string;
+  name: string;
+  title: string | null;
+  is_board_director: boolean;
+  transaction_date: string;          // ISO YYYY-MM-DD
+  transaction_type: string;          // 'Open market sale', 'Open market purchase', 'Award', etc.
+  transaction_shares: number;
+  transaction_price_per_share: number | null;
+  transaction_value: number | null;
+  shares_owned_before_transaction: number | null;
+  shares_owned_after_transaction: number | null;
+  security_title: string | null;
+  filing_date: string;
+}

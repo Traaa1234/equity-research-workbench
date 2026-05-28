@@ -1,6 +1,7 @@
 import {
   CompanyData,
   EarningsPoint,
+  InsiderTradeMeta,
   NewsArticleMeta,
   NotFoundError,
   PeriodType,
@@ -179,6 +180,20 @@ export class FinancialDatasetsProvider implements Provider {
       `/news?ticker=${encodeURIComponent(ticker.toUpperCase())}&limit=${limit}`
     );
     return out.news ?? [];
+  }
+
+  async insiderTrades(
+    ticker: string,
+    opts: { limit?: number; filingDateGte?: string; filingDateLte?: string } = {}
+  ): Promise<InsiderTradeMeta[]> {
+    const params = new URLSearchParams({ ticker: ticker.toUpperCase() });
+    params.set('limit', String(opts.limit ?? 500));
+    if (opts.filingDateGte) params.set('filing_date_gte', opts.filingDateGte);
+    if (opts.filingDateLte) params.set('filing_date_lte', opts.filingDateLte);
+    const out = await this.request<{ insider_trades?: InsiderTradeMeta[] }>(
+      `/insider-trades/?${params.toString()}`
+    );
+    return out.insider_trades ?? [];
   }
 
   // ----- HTTP plumbing -----

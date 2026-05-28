@@ -256,6 +256,53 @@ describe('FinancialDatasetsProvider', () => {
     });
   });
 
+  describe('.insiderTrades()', () => {
+    it('returns InsiderTradeMeta[] from /insider-trades/ endpoint', async () => {
+      const fix = loadFixture('fd-insider-trades-aapl.json');
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const result = await provider.insiderTrades('AAPL');
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const calledUrl = fetchMock.mock.calls[0]![0] as string;
+      expect(calledUrl).toContain('/insider-trades/?ticker=AAPL');
+      expect(calledUrl).toContain('limit=500');
+      expect(result).toHaveLength(3);
+      expect(result[0]!.name).toBe('Ben Borders');
+      expect(result[2]!.transaction_type).toBe('Award');
+    });
+
+    it('passes limit + date filters when provided', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ insider_trades: [] }));
+      const provider = makeProvider(fetchMock);
+      await provider.insiderTrades('AAPL', { limit: 100, filingDateGte: '2026-01-01', filingDateLte: '2026-05-01' });
+      const url = fetchMock.mock.calls[0]![0] as string;
+      expect(url).toContain('limit=100');
+      expect(url).toContain('filing_date_gte=2026-01-01');
+      expect(url).toContain('filing_date_lte=2026-05-01');
+    });
+
+    it('returns empty array when missing insider_trades field', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.insiderTrades('UNKNOWN');
+      expect(result).toEqual([]);
+    });
+
+    it('maps 404 to NotFoundError', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 404 }));
+      const provider = makeProvider(fetchMock);
+      await expect(provider.insiderTrades('AAPL')).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it('maps 429 to RateLimitError', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
+      const provider = makeProvider(fetchMock);
+      await expect(provider.insiderTrades('AAPL')).rejects.toBeInstanceOf(RateLimitError);
+    });
+  });
+
   describe('retry behavior', () => {
     it('retries on RateLimitError and succeeds on second attempt', async () => {
       vi.useFakeTimers();
