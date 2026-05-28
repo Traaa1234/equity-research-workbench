@@ -106,10 +106,14 @@ What the user gains:
 ### What stays unchanged
 
 - `institutional_holdings` table + RLS policy
-- `lib/compute/smart-money.ts` (30 curated managers + 15 index giants + `matchSmartMoney` + `normalizeInvestorName` + `getReverseLookupCiks`)
+- `lib/compute/smart-money.ts` — the existing 30 curated managers + `matchSmartMoney` + `normalizeInvestorName` stay as-is
 - `lib/compute/holdings-aggregate.ts` (classifyDelta, joinHoldersWithDeltas, computeHoldingsAggregate)
 - `HoldingsService.getList`, `.getAggregate`, `.listAvailablePeriods`
 - 5 UI components — only copy/labels change
+
+### What stays unchanged but gets extended
+
+- `lib/compute/smart-money.ts` — the 30 curated active managers stay. **This slice adds `INDEX_GIANTS` (15 entries: Vanguard / BlackRock / State Street / Fidelity / etc.) and a `getReverseLookupCiks()` helper that returns the union of all 45 CIKs.** These were prototyped during the failed FD hotfix attempt and reverted; this slice re-adds them as the canonical "investors to fetch from EDGAR" list.
 
 ### What changes
 
@@ -168,7 +172,12 @@ Extends the existing `api/fallback/sec.py` with a new `kind` value.
 
 1. Call `https://data.sec.gov/submissions/CIK{cik}.json` (where `{cik}` is the zero-padded form) to get the investor's filing index and the canonical `name` (used as `investor_name`).
 2. Filter the recent filings list for `form in ('13F-HR', '13F-HR/A')`. Take the most recent 8 entries.
-3. For each filing, fetch the filing's index page at `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=13F-HR&dateb=&owner=include&count=40&action=getcompany` OR (simpler) construct the index URL: `https://www.sec.gov/Archives/edgar/data/{cik_no_zeros}/{accession_no_dashes}/`. List the directory, find the file matching `*_informationtable.xml` (case-insensitive; SEC's naming varies — common patterns: `informationtable.xml`, `<accession>_informationtable.xml`).
+3. For each filing, find the InformationTable XML filename. Approach:
+   - Construct the filing's archive directory URL: `https://www.sec.gov/Archives/edgar/data/{cik_no_zeros}/{accession_no_dashes}/`. (Strip leading zeros from CIK; strip dashes from accession number — e.g. `0001067983-26-000001` → `000106798326000001`.)
+   - Fetch the JSON filing index at `{archive_dir_url}index.json` (SEC exposes a JSON manifest of files in each filing directory). The response shape includes `directory.item[]` with `name` and `type` fields.
+   - Find the entry whose name contains `informationtable` (case-insensitive substring match — handles all observed SEC naming variants: `informationtable.xml`, `<accession>_informationtable.xml`, occasional uppercase).
+   - If no match (some 13F-HR filings have unusual structures), skip this filing with a warn log and continue.
+   - Otherwise fetch the XML at `{archive_dir_url}{filename}`.
 4. Download the InformationTable XML. Parse with `BeautifulSoup` (already imported). Each `<infoTable>` element contains:
    - `<nameOfIssuer>` — `issuer_name`
    - `<titleOfClass>` — `class_title`
@@ -416,6 +425,7 @@ All 5 components keep their visual structure. Only labels/copy change.
 | `lib/providers/__fixtures__/fd-institutional-ownership-aapl.json` | Delete |
 | `lib/providers/__fixtures__/sec-13f-berkshire-2026q1.xml` | Create — fixture for parser test |
 | `lib/compute/cusip-map.ts` | Create |
+| `lib/compute/smart-money.ts` | Modify — add `INDEX_GIANTS` constant + `getReverseLookupCiks()` helper |
 | `lib/services/holdings.ts` | Rewrite — `refreshTrackedInvestors` replaces `refresh` |
 | `app/api/holdings/refresh-tracked/route.ts` | Create |
 | `app/api/tickers/[symbol]/holdings/route.ts` | Modify — delete POST handler |
