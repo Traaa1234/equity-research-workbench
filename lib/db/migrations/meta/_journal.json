@@ -71,6 +71,13 @@
       "when": 1779933903453,
       "tag": "0009_simple_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779987860803,
+      "tag": "0010_omniscient_carnage",
+      "breakpoints": true
     }
   ]
 }

@@ -313,3 +313,33 @@ export const newsArticles = pgTable(
     tickerDateIdx: index('news_articles_ticker_date_idx').on(t.ticker, t.publishedAt.desc())
   })
 );
+
+export const insiderTrades = pgTable(
+  'insider_trades',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    ticker: text('ticker').notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    insiderName: text('insider_name').notNull(),
+    insiderTitle: text('insider_title'),
+    isBoardDirector: boolean('is_board_director').notNull().default(false),
+    transactionDate: date('transaction_date').notNull(),
+    transactionType: text('transaction_type').notNull(),
+    shares: numeric('shares', { precision: 20, scale: 4 }).notNull(),
+    pricePerShare: numeric('price_per_share', { precision: 20, scale: 6 }),
+    transactionValue: numeric('transaction_value', { precision: 20, scale: 2 }),
+    sharesOwnedBefore: numeric('shares_owned_before', { precision: 20, scale: 4 }),
+    sharesOwnedAfter: numeric('shares_owned_after', { precision: 20, scale: 4 }),
+    securityTitle: text('security_title'),
+    filingDate: date('filing_date').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    dedupeKey: uniqueIndex('insider_trades_dedupe').on(
+      t.ticker, t.filingDate, t.insiderName, t.transactionDate, t.shares, t.transactionType
+    ),
+    tickerDateIdx: index('insider_trades_ticker_date_idx').on(
+      t.ticker, t.transactionDate.desc()
+    )
+  })
+);
