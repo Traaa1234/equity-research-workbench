@@ -9,6 +9,12 @@ import {
 } from '@/lib/compute/insider-aggregate';
 import { logger } from '@/lib/logger';
 
+function numToStr(n: number | null | undefined): string | null {
+  if (n == null) return null;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+  return String(n);
+}
+
 interface FdInsidersProvider {
   insiderTrades(ticker: string, opts?: { limit?: number }): Promise<InsiderTradeMeta[]>;
 }
@@ -112,46 +118,58 @@ export class InsidersService {
       fetched = trades.length;
 
       if (trades.length > 0) {
-        const beforeRows = await this.deps.db
-          .select({ id: insiderTrades.id })
-          .from(insiderTrades)
-          .where(eq(insiderTrades.ticker, t));
-        const beforeCount = beforeRows.length;
+        const insertable: Array<{ meta: InsiderTradeMeta; shares: string }> = [];
+        for (const meta of trades) {
+          const shares = numToStr(meta.transaction_shares);
+          if (shares == null) {
+            logger.warn(
+              {
+                ticker: t,
+                insider: meta.name,
+                transactionDate: meta.transaction_date,
+                rawShares: meta.transaction_shares
+              },
+              'insiders.refresh: skipping trade with non-numeric shares'
+            );
+            continue;
+          }
+          insertable.push({ meta, shares });
+        }
 
-        await this.deps.db
-          .insert(insiderTrades)
-          .values(
-            trades.map((meta) => ({
-              ticker: t,
-              insiderName: meta.name,
-              insiderTitle: meta.title,
-              isBoardDirector: meta.is_board_director,
-              transactionDate: meta.transaction_date,
-              transactionType: meta.transaction_type,
-              shares: String(meta.transaction_shares),
-              pricePerShare: meta.transaction_price_per_share == null
-                ? null
-                : String(meta.transaction_price_per_share),
-              transactionValue: meta.transaction_value == null
-                ? null
-                : String(meta.transaction_value),
-              sharesOwnedBefore: meta.shares_owned_before_transaction == null
-                ? null
-                : String(meta.shares_owned_before_transaction),
-              sharesOwnedAfter: meta.shares_owned_after_transaction == null
-                ? null
-                : String(meta.shares_owned_after_transaction),
-              securityTitle: meta.security_title,
-              filingDate: meta.filing_date
-            }))
-          )
-          .onConflictDoNothing();
+        if (insertable.length > 0) {
+          const beforeRows = await this.deps.db
+            .select({ id: insiderTrades.id })
+            .from(insiderTrades)
+            .where(eq(insiderTrades.ticker, t));
+          const beforeCount = beforeRows.length;
 
-        const afterRows = await this.deps.db
-          .select({ id: insiderTrades.id })
-          .from(insiderTrades)
-          .where(eq(insiderTrades.ticker, t));
-        newRows = afterRows.length - beforeCount;
+          await this.deps.db
+            .insert(insiderTrades)
+            .values(
+              insertable.map(({ meta, shares }) => ({
+                ticker: t,
+                insiderName: meta.name,
+                insiderTitle: meta.title,
+                isBoardDirector: meta.is_board_director,
+                transactionDate: meta.transaction_date,
+                transactionType: meta.transaction_type,
+                shares,
+                pricePerShare: numToStr(meta.transaction_price_per_share),
+                transactionValue: numToStr(meta.transaction_value),
+                sharesOwnedBefore: numToStr(meta.shares_owned_before_transaction),
+                sharesOwnedAfter: numToStr(meta.shares_owned_after_transaction),
+                securityTitle: meta.security_title,
+                filingDate: meta.filing_date
+              }))
+            )
+            .onConflictDoNothing();
+
+          const afterRows = await this.deps.db
+            .select({ id: insiderTrades.id })
+            .from(insiderTrades)
+            .where(eq(insiderTrades.ticker, t));
+          newRows = afterRows.length - beforeCount;
+        }
       }
 
       await this.deps.db.insert(refreshRuns).values({

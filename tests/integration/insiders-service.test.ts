@@ -111,4 +111,37 @@ describe('InsidersService', () => {
     expect(agg.uniqueBuyers).toBe(1);
     expect(agg.uniqueSellers).toBe(1);
   });
+
+  it('refresh: skips trades with non-numeric shares but still counts them as fetched', async () => {
+    const tradesWithBad: InsiderTradeMeta[] = [
+      {
+        ticker: 'AAPL', issuer: 'Apple Inc.', name: 'Carol',
+        title: 'Director', is_board_director: true,
+        transaction_date: '2026-05-22', transaction_type: 'Award',
+        transaction_shares: null as any,
+        transaction_price_per_share: null, transaction_value: null,
+        shares_owned_before_transaction: null, shares_owned_after_transaction: null,
+        security_title: 'Common Stock', filing_date: '2026-05-23'
+      },
+      {
+        ticker: 'AAPL', issuer: 'Apple Inc.', name: 'Dave',
+        title: 'CEO', is_board_director: false,
+        transaction_date: '2026-05-21', transaction_type: 'Open market purchase',
+        transaction_shares: 250, transaction_price_per_share: 292, transaction_value: 73000,
+        shares_owned_before_transaction: 1000, shares_owned_after_transaction: 1250,
+        security_title: 'Common Stock', filing_date: '2026-05-22'
+      }
+    ];
+    const fd = mockFdProvider(tradesWithBad);
+    const svc = new InsidersService({ db: dbH.db, fdProvider: fd as any });
+
+    const summary = await svc.refresh('AAPL');
+
+    expect(summary.fetched).toBe(2);
+    expect(summary.newRows).toBe(1);
+
+    const rows = await dbH.db.select().from(insiderTrades).where(eq(insiderTrades.ticker, 'AAPL'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.insiderName).toBe('Dave');
+  });
 });
