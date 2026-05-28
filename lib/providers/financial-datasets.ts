@@ -1,7 +1,6 @@
 import {
   CompanyData,
   EarningsPoint,
-  HoldingsMeta,
   InsiderTradeMeta,
   NewsArticleMeta,
   NotFoundError,
@@ -195,20 +194,6 @@ export class FinancialDatasetsProvider implements Provider {
       `/insider-trades/?${params.toString()}`
     );
     return out.insider_trades ?? [];
-  }
-
-  async institutionalOwnership(
-    ticker: string,
-    opts: { limit?: number; reportPeriodGte?: string; reportPeriodLte?: string } = {}
-  ): Promise<HoldingsMeta[]> {
-    const params = new URLSearchParams({ ticker: ticker.toUpperCase() });
-    params.set('limit', String(opts.limit ?? 500));
-    if (opts.reportPeriodGte) params.set('report_period_gte', opts.reportPeriodGte);
-    if (opts.reportPeriodLte) params.set('report_period_lte', opts.reportPeriodLte);
-    const out = await this.request<{ institutional_ownership?: HoldingsMeta[] }>(
-      `/institutional-ownership/?${params.toString()}`
-    );
-    return out.institutional_ownership ?? [];
   }
 
   // ----- HTTP plumbing -----

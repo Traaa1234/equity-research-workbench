@@ -303,59 +303,6 @@ describe('FinancialDatasetsProvider', () => {
     });
   });
 
-  describe('.institutionalOwnership()', () => {
-    it('returns HoldingsMeta[] from /institutional-ownership/ endpoint', async () => {
-      const fix = loadFixture('fd-institutional-ownership-aapl.json');
-      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
-      const provider = makeProvider(fetchMock);
-
-      const result = await provider.institutionalOwnership('AAPL');
-
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const calledUrl = fetchMock.mock.calls[0]![0] as string;
-      expect(calledUrl).toContain('/institutional-ownership/?ticker=AAPL');
-      expect(calledUrl).toContain('limit=500');
-      expect(result).toHaveLength(3);
-      expect(result[0]!.investor).toBe('BERKSHIRE HATHAWAY INC');
-      expect(result[0]!.cik).toBe('0001067983');
-      expect(result[1]!.investor).toBe('VANGUARD GROUP INC');
-      expect(result[1]!.cik).toBeUndefined();
-    });
-
-    it('passes limit + period filters when provided', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ institutional_ownership: [] }));
-      const provider = makeProvider(fetchMock);
-      await provider.institutionalOwnership('AAPL', {
-        limit: 100,
-        reportPeriodGte: '2025-03-31',
-        reportPeriodLte: '2026-03-31'
-      });
-      const url = fetchMock.mock.calls[0]![0] as string;
-      expect(url).toContain('limit=100');
-      expect(url).toContain('report_period_gte=2025-03-31');
-      expect(url).toContain('report_period_lte=2026-03-31');
-    });
-
-    it('returns empty array when missing institutional_ownership field', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
-      const provider = makeProvider(fetchMock);
-      const result = await provider.institutionalOwnership('UNKNOWN');
-      expect(result).toEqual([]);
-    });
-
-    it('maps 404 to NotFoundError', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 404 }));
-      const provider = makeProvider(fetchMock);
-      await expect(provider.institutionalOwnership('AAPL')).rejects.toBeInstanceOf(NotFoundError);
-    });
-
-    it('maps 429 to RateLimitError', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
-      const provider = makeProvider(fetchMock);
-      await expect(provider.institutionalOwnership('AAPL')).rejects.toBeInstanceOf(RateLimitError);
-    });
-  });
-
   describe('retry behavior', () => {
     it('retries on RateLimitError and succeeds on second attempt', async () => {
       vi.useFakeTimers();
