@@ -343,3 +343,32 @@ export const insiderTrades = pgTable(
     )
   })
 );
+
+export const institutionalHoldings = pgTable(
+  'institutional_holdings',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    ticker: text('ticker').notNull()
+      .references(() => companies.ticker, { onDelete: 'cascade' }),
+    investorId: text('investor_id').notNull(),
+    investorName: text('investor_name').notNull(),
+    reportPeriod: date('report_period').notNull(),
+    shares: numeric('shares', { precision: 20, scale: 4 }).notNull(),
+    marketValue: numeric('market_value', { precision: 20, scale: 2 }),
+    sharesPctOfPortfolio: numeric('shares_pct_of_portfolio', { precision: 10, scale: 6 }),
+    sharesPctOfShareholders: numeric('shares_pct_of_shareholders', { precision: 10, scale: 6 }),
+    filingDate: date('filing_date').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    dedupeKey: uniqueIndex('institutional_holdings_dedupe').on(
+      t.ticker, t.investorId, t.reportPeriod
+    ),
+    tickerPeriodIdx: index('institutional_holdings_ticker_period_idx').on(
+      t.ticker, t.reportPeriod.desc()
+    ),
+    tickerInvestorIdx: index('institutional_holdings_ticker_investor_idx').on(
+      t.ticker, t.investorId, t.reportPeriod.desc()
+    )
+  })
+);
