@@ -57,6 +57,44 @@ export const SMART_MONEY: ReadonlyArray<SmartMoneyEntry> = [
   { cik: '0001637087', canonicalNames: ['CHILDRENS INVESTMENT FUND MANAGEMENT', 'TCI FUND MANAGEMENT'], name: "Children's Investment Fund Management", category: 'activist' }
 ];
 
+/**
+ * The "passive giants" — index funds + ETF sponsors that don't make
+ * conviction calls but dominate 13F filings by AUM. Included so the
+ * holdings refresh fetches their positions for correct top-10
+ * concentration math. Not flagged as "smart money" in the UI; they
+ * are not in SMART_MONEY's smart-money matcher.
+ */
+export const INDEX_GIANTS: ReadonlyArray<{ cik: string; name: string }> = [
+  { cik: '0000102909', name: 'Vanguard Group' },
+  { cik: '0001364742', name: 'BlackRock' },
+  { cik: '0000093751', name: 'State Street' },
+  { cik: '0000315066', name: 'Fidelity (FMR)' },
+  { cik: '0000080424', name: 'T. Rowe Price' },
+  { cik: '0000895421', name: 'Morgan Stanley' },
+  { cik: '0000886982', name: 'Goldman Sachs' },
+  { cik: '0000019617', name: 'JPMorgan Chase' },
+  { cik: '0000050166', name: 'Wells Fargo & Co.' },
+  { cik: '0000895646', name: 'Bank of America' },
+  { cik: '0000034088', name: 'Northern Trust' },
+  { cik: '0000037996', name: 'Bank of New York Mellon' },
+  { cik: '0001039765', name: 'Capital Research Global Investors' },
+  { cik: '0000866787', name: 'Wellington Management' },
+  { cik: '0000800240', name: 'Geode Capital Management' }
+];
+
+/**
+ * All investors to fetch from SEC EDGAR during a holdings refresh.
+ * Union of SMART_MONEY (30 active managers) + INDEX_GIANTS (15
+ * passive giants). Deduplicated by CIK. Every CIK is 10-digit
+ * zero-padded.
+ */
+export function getReverseLookupCiks(): string[] {
+  const ciks = new Set<string>();
+  for (const e of SMART_MONEY) ciks.add(e.cik);
+  for (const g of INDEX_GIANTS) ciks.add(g.cik);
+  return Array.from(ciks);
+}
+
 // Quick lookups built at module load.
 const BY_CIK = new Map<string, SmartMoneyEntry>(
   SMART_MONEY.map((e) => [e.cik, e])
