@@ -114,4 +114,72 @@ describe('QwenProviderImpl', () => {
     await expect(provider.summarize({ model: 'qwen-plus', systemPrompt: 's', userPrompt: 'u' }))
       .rejects.toBeInstanceOf(UnknownProviderError);
   });
+
+  describe('.sentimentBatch()', () => {
+    it('parses Qwen JSON output into SentimentScore[]', async () => {
+      const fix = loadFixture('qwen-sentiment-response.json');
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(fix));
+      const provider = makeProvider(fetchMock);
+
+      const result = await provider.sentimentBatch({
+        titles: ['Apple beats earnings', 'Apple suit dismissed', 'Apple announces meeting'],
+        ticker: 'AAPL'
+      });
+
+      expect(result).toHaveLength(3);
+      expect(result[0]).toEqual({ sentiment: 'bullish', confidence: 0.82 });
+      expect(result[1]).toEqual({ sentiment: 'bearish', confidence: 0.74 });
+      expect(result[2]).toEqual({ sentiment: 'neutral', confidence: 0.55 });
+    });
+
+    it('returns all-neutral fallback on parse failure', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+        id: 'x', object: 'chat.completion', created: 1, model: 'qwen-turbo',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'this is not JSON' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 }
+      }));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.sentimentBatch({ titles: ['a', 'b', 'c'] });
+      expect(result).toEqual([
+        { sentiment: 'neutral', confidence: 0 },
+        { sentiment: 'neutral', confidence: 0 },
+        { sentiment: 'neutral', confidence: 0 }
+      ]);
+    });
+
+    it('clamps confidence to [0, 1]', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+        id: 'x', object: 'chat.completion', created: 1, model: 'qwen-turbo',
+        choices: [{ index: 0, message: { role: 'assistant', content: '[{"sentiment":"bullish","confidence":1.5},{"sentiment":"bearish","confidence":-0.2}]' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.sentimentBatch({ titles: ['a', 'b'] });
+      expect(result[0]!.confidence).toBe(1);
+      expect(result[1]!.confidence).toBe(0);
+    });
+
+    it('returns all-neutral when response array length does not match titles length', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+        id: 'x', object: 'chat.completion', created: 1, model: 'qwen-turbo',
+        choices: [{ index: 0, message: { role: 'assistant', content: '[{"sentiment":"bullish","confidence":0.5}]' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.sentimentBatch({ titles: ['a', 'b', 'c'] });
+      expect(result).toHaveLength(3);
+      expect(result.every(r => r.sentiment === 'neutral' && r.confidence === 0)).toBe(true);
+    });
+
+    it('normalizes invalid sentiment values to neutral', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+        id: 'x', object: 'chat.completion', created: 1, model: 'qwen-turbo',
+        choices: [{ index: 0, message: { role: 'assistant', content: '[{"sentiment":"positive","confidence":0.8}]' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }));
+      const provider = makeProvider(fetchMock);
+      const result = await provider.sentimentBatch({ titles: ['a'] });
+      expect(result[0]).toEqual({ sentiment: 'neutral', confidence: 0 });
+    });
+  });
 });

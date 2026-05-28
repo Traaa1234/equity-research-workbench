@@ -6,6 +6,9 @@ import {
   QwenSummarizeRequest,
   QwenSummarizeResult,
   RateLimitError,
+  SentimentBatchRequest,
+  SentimentLabel,
+  SentimentScore,
   UnknownProviderError,
   ValidationError
 } from './types';
@@ -70,6 +73,79 @@ export class QwenProviderImpl implements QwenProvider {
     } catch (err) {
       throw mapOpenAIError(err);
     }
+  }
+
+  async sentimentBatch(req: SentimentBatchRequest): Promise<SentimentScore[]> {
+    const model = req.model ?? 'qwen-turbo';
+    const titles = req.titles;
+    const n = titles.length;
+
+    if (n === 0) return [];
+
+    const systemPrompt = (
+      'You classify stock-news headlines. For each headline, decide whether the most ' +
+      'likely market reaction is `bullish`, `bearish`, or `neutral`, with a `confidence` ' +
+      'between 0.0 and 1.0. Output ONLY a JSON array of objects, no prose. Each object: ' +
+      '{"sentiment": "...", "confidence": 0.0-1.0}. The array MUST be the same length as ' +
+      'the input and in the same order.'
+    );
+
+    const tickerLabel = req.ticker ? `$${req.ticker.toUpperCase()}` : 'a public company';
+    const numbered = titles.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const userPrompt = `Classify these ${n} headlines about ${tickerLabel}:\n${numbered}`;
+
+    const allNeutral = (): SentimentScore[] =>
+      titles.map(() => ({ sentiment: 'neutral' as const, confidence: 0 }));
+
+    let raw: string;
+    try {
+      const completion = await this.client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: Math.max(2000, n * 40)
+      });
+      raw = completion.choices[0]?.message?.content?.trim() ?? '';
+      if (!raw) return allNeutral();
+    } catch (err) {
+      throw mapOpenAIError(err);
+    }
+
+    // Strip optional code fences (some models wrap JSON in ```json ... ```)
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return allNeutral();
+    }
+
+    if (!Array.isArray(parsed) || parsed.length !== n) {
+      return allNeutral();
+    }
+
+    const VALID: SentimentLabel[] = ['bullish', 'neutral', 'bearish'];
+    return parsed.map((item) => {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const obj = item as { sentiment?: unknown; confidence?: unknown };
+        const sent = typeof obj.sentiment === 'string' && (VALID as string[]).includes(obj.sentiment)
+          ? (obj.sentiment as SentimentLabel)
+          : 'neutral';
+        let conf = typeof obj.confidence === 'number' && Number.isFinite(obj.confidence)
+          ? obj.confidence
+          : 0;
+        // When sentiment was normalized away from a non-neutral label, reset confidence to 0
+        if (sent === 'neutral' && typeof obj.sentiment === 'string' && obj.sentiment !== 'neutral') {
+          conf = 0;
+        }
+        conf = Math.max(0, Math.min(1, conf));
+        return { sentiment: sent, confidence: conf };
+      }
+      return { sentiment: 'neutral' as const, confidence: 0 };
+    });
   }
 }
 

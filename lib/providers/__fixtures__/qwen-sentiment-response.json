@@ -1,0 +1,17 @@
+{
+  "id": "chatcmpl-test",
+  "object": "chat.completion",
+  "created": 1779900000,
+  "model": "qwen-turbo",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "[{\"sentiment\":\"bullish\",\"confidence\":0.82},{\"sentiment\":\"bearish\",\"confidence\":0.74},{\"sentiment\":\"neutral\",\"confidence\":0.55}]"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": { "prompt_tokens": 150, "completion_tokens": 80, "total_tokens": 230 }
+}

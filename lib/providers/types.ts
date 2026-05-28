@@ -150,8 +150,23 @@ export interface QwenSummarizeResult {
   outputTokens: number;
 }
 
+export type SentimentLabel = 'bullish' | 'neutral' | 'bearish';
+
+export interface SentimentScore {
+  sentiment: SentimentLabel;
+  confidence: number;   // clamped to [0, 1]
+}
+
+export interface SentimentBatchRequest {
+  titles: string[];
+  ticker?: string;
+  model?: string;            // default 'qwen-turbo'
+  promptVersion?: string;    // default 'v1'
+}
+
 export interface QwenProvider {
   summarize(req: QwenSummarizeRequest): Promise<QwenSummarizeResult>;
+  sentimentBatch(req: SentimentBatchRequest): Promise<SentimentScore[]>;
 }
 
 // DashScope embeddings provider — used by EmbeddingsProvider.
