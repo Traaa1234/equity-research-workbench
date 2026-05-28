@@ -153,3 +153,99 @@ export function altmanZScore(
 
   return { score, zone, components: { a, b, c, d, e } };
 }
+
+export interface BeneishResult {
+  score: number;
+  flag: boolean;        // true if score > -1.78 (manipulation possible)
+  components: {
+    dsri: number; gmi: number; aqi: number; sgi: number;
+    depi: number; sgai: number; lvgi: number; tata: number;
+  };
+}
+
+/**
+ * Beneish M-Score: 8-variable model detecting earnings manipulation.
+ *
+ *   M = -4.84 + 0.920·DSRI + 0.528·GMI + 0.404·AQI + 0.892·SGI
+ *           + 0.115·DEPI − 0.172·SGAI + 4.679·TATA − 0.327·LVGI
+ *
+ * Threshold: M > -1.78 → manipulation possible (suspicion signal, not proof).
+ *
+ * Each variable is a YoY ratio. GMI and DEPI are inverted (prior/current
+ * rather than current/prior) by Beneish's convention.
+ *
+ * Returns null when any required input is missing.
+ */
+export function beneishMScore(
+  current: AnnualFinancials,
+  prior: AnnualFinancials
+): BeneishResult | null {
+  const req = [
+    current.revenue, current.costOfRevenue, current.grossProfit,
+    current.sga, current.depreciation, current.netIncome,
+    current.operatingCashFlow, current.receivables, current.currentAssets,
+    current.ppe, current.totalAssets, current.totalLiabilities,
+    prior.revenue, prior.costOfRevenue, prior.grossProfit,
+    prior.sga, prior.depreciation, prior.receivables, prior.currentAssets,
+    prior.ppe, prior.totalAssets, prior.totalLiabilities
+  ];
+  if (!req.every(isFiniteNum)) return null;
+
+  // Guard against div-by-zero across the formula
+  if (
+    current.revenue === 0 || prior.revenue === 0 ||
+    current.totalAssets === 0 || prior.totalAssets === 0 ||
+    current.ppe! + current.depreciation! === 0 ||
+    prior.ppe! + prior.depreciation! === 0
+  ) {
+    return null;
+  }
+
+  // DSRI: Days Sales in Receivables Index
+  const dsri = (current.receivables! / current.revenue!) /
+               (prior.receivables!   / prior.revenue!);
+
+  // GMI: Gross Margin Index (inverted — prior / current)
+  const currentGM = current.grossProfit! / current.revenue!;
+  const priorGM   = prior.grossProfit!   / prior.revenue!;
+  const gmi = priorGM / currentGM;
+
+  // AQI: Asset Quality Index
+  const currentSoftRatio = 1 - (current.currentAssets! + current.ppe!) / current.totalAssets!;
+  const priorSoftRatio   = 1 - (prior.currentAssets!   + prior.ppe!)   / prior.totalAssets!;
+  const aqi = currentSoftRatio / priorSoftRatio;
+
+  // SGI: Sales Growth Index
+  const sgi = current.revenue! / prior.revenue!;
+
+  // DEPI: Depreciation Index (inverted — prior rate / current rate)
+  const currentDeprRate = current.depreciation! / (current.ppe! + current.depreciation!);
+  const priorDeprRate   = prior.depreciation!   / (prior.ppe!   + prior.depreciation!);
+  const depi = priorDeprRate / currentDeprRate;
+
+  // SGAI: SGA Index
+  const sgai = (current.sga! / current.revenue!) / (prior.sga! / prior.revenue!);
+
+  // LVGI: Leverage Index
+  const lvgi = (current.totalLiabilities! / current.totalAssets!) /
+               (prior.totalLiabilities!   / prior.totalAssets!);
+
+  // TATA: Total Accruals to Total Assets (current year only)
+  const tata = (current.netIncome! - current.operatingCashFlow!) / current.totalAssets!;
+
+  const score = -4.84
+    + 0.920 * dsri
+    + 0.528 * gmi
+    + 0.404 * aqi
+    + 0.892 * sgi
+    + 0.115 * depi
+    - 0.172 * sgai
+    + 4.679 * tata
+    - 0.327 * lvgi;
+
+  return {
+    score,
+    flag: score > -1.78,
+    components: { dsri, gmi, aqi, sgi, depi, sgai, lvgi, tata }
+  };
+}

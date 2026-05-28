@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   piotroskiFScore,
   altmanZScore,
+  beneishMScore,
   type AnnualFinancials
 } from '@/lib/compute/quality';
 
@@ -133,6 +134,73 @@ describe('altmanZScore', () => {
       ebit: 200, totalLiabilities: 400, revenue: 1500
     };
     const r = altmanZScore(f, 5000);
+    expect(r).toBeNull();
+  });
+});
+
+describe('beneishMScore', () => {
+  // Beneish M-Score formula:
+  //   M = -4.84 + 0.92·DSRI + 0.528·GMI + 0.404·AQI + 0.892·SGI
+  //       + 0.115·DEPI − 0.172·SGAI + 4.679·TATA − 0.327·LVGI
+  // Threshold: M > -1.78 → manipulation likely.
+
+  it('returns clean (flag=false) for stable ratios fixture', () => {
+    // All ratios stable YoY → most indices ≈ 1 → M-score near the floor
+    const prior: AnnualFinancials = {
+      ...emptyFinancials('2024-09-28'),
+      revenue: 1000, costOfRevenue: 600, grossProfit: 400,
+      sga: 100, depreciation: 50, netIncome: 200, operatingCashFlow: 220,
+      receivables: 100, currentAssets: 300, ppe: 500,
+      totalAssets: 1000, totalLiabilities: 400
+    };
+    // Slight growth (5%) with stable ratios — nothing suspicious
+    const current: AnnualFinancials = {
+      ...emptyFinancials('2025-09-27'),
+      revenue: 1050, costOfRevenue: 630, grossProfit: 420,
+      sga: 105, depreciation: 52, netIncome: 210, operatingCashFlow: 230,
+      receivables: 105, currentAssets: 315, ppe: 525,
+      totalAssets: 1050, totalLiabilities: 420
+    };
+    const r = beneishMScore(current, prior);
+    expect(r).not.toBeNull();
+    expect(r!.score).toBeLessThan(-1.78);
+    expect(r!.flag).toBe(false);
+  });
+
+  it('returns flagged (true) for manipulation-pattern fixture', () => {
+    // Constructed to push every component in the "manipulation" direction:
+    //   - Receivables grew faster than revenue (DSRI > 1)
+    //   - Margins shrank (GMI > 1)
+    //   - More soft assets (AQI > 1)
+    //   - Sales spiked (SGI > 1)
+    //   - Depreciation rate dropped (DEPI > 1)
+    //   - Accruals high (TATA > 0)
+    const prior: AnnualFinancials = {
+      ...emptyFinancials('2024-09-28'),
+      revenue: 1000, costOfRevenue: 600, grossProfit: 400,
+      sga: 100, depreciation: 100, netIncome: 200, operatingCashFlow: 220,
+      receivables: 100, currentAssets: 300, ppe: 500,
+      totalAssets: 1000, totalLiabilities: 400
+    };
+    const current: AnnualFinancials = {
+      ...emptyFinancials('2025-09-27'),
+      revenue: 1500, costOfRevenue: 1100, grossProfit: 400,  // GP flat → margin down
+      sga: 100, depreciation: 80,                            // depr rate down
+      netIncome: 300, operatingCashFlow: 100,                // NI >> CFO → high accruals
+      receivables: 300,                                       // way faster than revenue
+      currentAssets: 600, ppe: 400,                          // more soft assets
+      totalAssets: 1500, totalLiabilities: 800
+    };
+    const r = beneishMScore(current, prior);
+    expect(r).not.toBeNull();
+    expect(r!.score).toBeGreaterThan(-1.78);
+    expect(r!.flag).toBe(true);
+  });
+
+  it('returns null when required inputs are missing', () => {
+    const prior = emptyFinancials('2024-09-28');
+    const current = emptyFinancials('2025-09-27');
+    const r = beneishMScore(current, prior);
     expect(r).toBeNull();
   });
 });
