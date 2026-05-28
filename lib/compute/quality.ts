@@ -249,3 +249,70 @@ export function beneishMScore(
     components: { dsri, gmi, aqi, sgi, depi, sgai, lvgi, tata }
   };
 }
+
+export interface QualityResult {
+  current: {
+    piotroskiF: PiotroskiResult | null;
+    altmanZ: AltmanResult | null;
+    beneishM: BeneishResult | null;
+  };
+  trend: Array<{
+    periodEnd: string;
+    piotroskiF: number | null;
+    altmanZ: number | null;
+    beneishM: number | null;
+  }>;   // newest first, up to 5 entries
+}
+
+/**
+ * Compute all three scores for the latest annual period (vs prior year),
+ * plus a 5-year trend of just the headline numbers.
+ *
+ * `annuals` MUST be sorted ascending by periodEnd. `currentMarketCap` is
+ * the current market cap (used by Altman Z's component D for the latest
+ * period only — trend entries reuse the same value as an approximation).
+ */
+export function computeQuality(
+  ticker: string,
+  annuals: AnnualFinancials[],
+  currentMarketCap: number
+): QualityResult {
+  void ticker;  // not used in compute; here for future ticker-scoped variants
+
+  if (annuals.length < 2) {
+    return {
+      current: { piotroskiF: null, altmanZ: null, beneishM: null },
+      trend: []
+    };
+  }
+
+  const latest = annuals[annuals.length - 1]!;
+  const priorToLatest = annuals[annuals.length - 2]!;
+
+  const current = {
+    piotroskiF: piotroskiFScore(latest, priorToLatest),
+    altmanZ: altmanZScore(latest, currentMarketCap),
+    beneishM: beneishMScore(latest, priorToLatest)
+  };
+
+  // Trend: walk pairs (annuals[i-1], annuals[i]) for the last 5 such pairs
+  const trendAsc: QualityResult['trend'] = [];
+  const startIdx = Math.max(1, annuals.length - 5);
+  for (let i = startIdx; i < annuals.length; i++) {
+    const curr = annuals[i]!;
+    const prev = annuals[i - 1]!;
+    const f = piotroskiFScore(curr, prev);
+    const z = altmanZScore(curr, currentMarketCap);
+    const m = beneishMScore(curr, prev);
+    trendAsc.push({
+      periodEnd: curr.periodEnd,
+      piotroskiF: f ? f.score : null,
+      altmanZ: z ? z.score : null,
+      beneishM: m ? m.score : null
+    });
+  }
+  // Newest first
+  const trend = [...trendAsc].reverse();
+
+  return { current, trend };
+}

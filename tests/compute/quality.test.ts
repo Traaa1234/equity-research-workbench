@@ -3,6 +3,7 @@ import {
   piotroskiFScore,
   altmanZScore,
   beneishMScore,
+  computeQuality,
   type AnnualFinancials
 } from '@/lib/compute/quality';
 
@@ -202,5 +203,48 @@ describe('beneishMScore', () => {
     const current = emptyFinancials('2025-09-27');
     const r = beneishMScore(current, prior);
     expect(r).toBeNull();
+  });
+});
+
+describe('computeQuality (wrapper)', () => {
+  it('returns latest scores + up to 5-year trend, newest first', () => {
+    // 6 years of annual financials, all with stable healthy ratios
+    const annuals: AnnualFinancials[] = [2020, 2021, 2022, 2023, 2024, 2025].map((year) => ({
+      ...emptyFinancials(`${year}-09-30`),
+      revenue: 1000 + (year - 2020) * 50,
+      costOfRevenue: 600 + (year - 2020) * 30,
+      grossProfit: 400 + (year - 2020) * 20,
+      sga: 100, depreciation: 50,
+      ebit: 200 + (year - 2020) * 10,
+      netIncome: 180 + (year - 2020) * 10,
+      operatingCashFlow: 200 + (year - 2020) * 12,
+      receivables: 100,
+      currentAssets: 300 + (year - 2020) * 15,
+      ppe: 500,
+      totalAssets: 1000 + (year - 2020) * 50,
+      currentLiabilities: 200,
+      longTermDebt: 300 - (year - 2020) * 10,
+      totalLiabilities: 400,
+      retainedEarnings: 200 + (year - 2020) * 50,
+      sharesOutstanding: 100
+    }));
+
+    const r = computeQuality('TEST', annuals, 5000);
+
+    expect(r.current.piotroskiF).not.toBeNull();
+    expect(r.current.altmanZ).not.toBeNull();
+    expect(r.current.beneishM).not.toBeNull();
+
+    expect(r.trend.length).toBeLessThanOrEqual(5);
+    // Newest first
+    expect(r.trend[0]!.periodEnd > r.trend[r.trend.length - 1]!.periodEnd).toBe(true);
+  });
+
+  it('handles 0-1 years of data gracefully', () => {
+    const r = computeQuality('TEST', [], 1000);
+    expect(r.current.piotroskiF).toBeNull();
+    expect(r.current.altmanZ).toBeNull();
+    expect(r.current.beneishM).toBeNull();
+    expect(r.trend).toEqual([]);
   });
 });
