@@ -7,6 +7,7 @@ import {
   SecEdgarProvider,
   SecFilingFull,
   SecFilingsList,
+  ThirteenFInvestor,
   UnknownProviderError,
   ValidationError
 } from './types';
@@ -70,6 +71,45 @@ export class SecEdgarProviderImpl implements SecEdgarProvider {
       form_type: formType
     });
     return out as SecFilingFull;
+  }
+
+  async thirteenFFilings(cik: string): Promise<ThirteenFInvestor> {
+    const body = await this.run({ kind: 'thirteen_f_filings', cik }) as {
+      cik: string;
+      investor_name: string;
+      filings: Array<{
+        accession: string;
+        filing_date: string;
+        report_period: string;
+        form_type: string;
+        positions: Array<{
+          cusip: string;
+          issuer_name: string;
+          class_title: string;
+          value_usd: number;
+          shares: number;
+          shares_type: string;
+        }>;
+      }>;
+    };
+    return {
+      cik: body.cik,
+      investorName: body.investor_name,
+      filings: body.filings.map((f) => ({
+        accession: f.accession,
+        filingDate: f.filing_date,
+        reportPeriod: f.report_period,
+        formType: f.form_type,
+        positions: f.positions.map((p) => ({
+          cusip: p.cusip,
+          issuerName: p.issuer_name,
+          classTitle: p.class_title,
+          valueUsd: p.value_usd,
+          shares: p.shares,
+          sharesType: p.shares_type
+        }))
+      }))
+    };
   }
 
   // ----- Dispatch -----

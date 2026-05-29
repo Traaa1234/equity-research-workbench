@@ -130,10 +130,35 @@ export interface SecFilingFull {
   totalChars: number;
 }
 
+// 13F filings — used by SecEdgarProvider.thirteenFFilings.
+export interface ThirteenFPosition {
+  cusip: string;
+  issuerName: string;
+  classTitle: string;
+  valueUsd: number;
+  shares: number;
+  sharesType: string;
+}
+
+export interface ThirteenFFiling {
+  accession: string;
+  filingDate: string;          // YYYY-MM-DD
+  reportPeriod: string;        // YYYY-MM-DD
+  formType: string;
+  positions: ThirteenFPosition[];
+}
+
+export interface ThirteenFInvestor {
+  cik: string;
+  investorName: string;
+  filings: ThirteenFFiling[];
+}
+
 export interface SecEdgarProvider {
   resolveCik(ticker: string): Promise<string>;
   listFilings(cik: string, forms: string[], yearsBack: number): Promise<SecFilingsList>;
   fetchFiling(primaryDocUrl: string, formType: string): Promise<SecFilingFull>;
+  thirteenFFilings(cik: string): Promise<ThirteenFInvestor>;
 }
 
 // Qwen / DashScope provider types — used by QwenProvider.

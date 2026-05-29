@@ -78,6 +78,62 @@ describe('SecEdgarProviderImpl (HTTP mode)', () => {
     });
   });
 
+  describe('.thirteenFFilings()', () => {
+    it('calls /api/fallback/sec?kind=thirteen_f_filings&cik=<CIK> and maps to camelCase', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+        cik: '0001067983',
+        investor_name: 'BERKSHIRE HATHAWAY INC',
+        filings: [
+          {
+            accession: '0001067983-26-000001',
+            filing_date: '2026-05-14',
+            report_period: '2026-03-31',
+            form_type: '13F-HR',
+            positions: [
+              {
+                cusip: '037833100',
+                issuer_name: 'APPLE INC',
+                class_title: 'COM',
+                value_usd: 263012040000,
+                shares: 905560000,
+                shares_type: 'SH'
+              }
+            ]
+          }
+        ]
+      }));
+      const provider = makeProviderHttp(fetchMock);
+      const result = await provider.thirteenFFilings('0001067983');
+
+      const calledUrl = fetchMock.mock.calls[0]![0] as string;
+      expect(calledUrl).toContain('kind=thirteen_f_filings');
+      expect(calledUrl).toContain('cik=0001067983');
+      expect(result.cik).toBe('0001067983');
+      expect(result.investorName).toBe('BERKSHIRE HATHAWAY INC');
+      expect(result.filings).toHaveLength(1);
+      expect(result.filings[0]!.reportPeriod).toBe('2026-03-31');
+      expect(result.filings[0]!.positions[0]!.valueUsd).toBe(263012040000);
+      expect(result.filings[0]!.positions[0]!.sharesType).toBe('SH');
+    });
+
+    it('returns empty filings array when investor has no 13F-HRs', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+        cik: '0001234567', investor_name: 'SMALL FUND', filings: []
+      }));
+      const provider = makeProviderHttp(fetchMock);
+      const result = await provider.thirteenFFilings('0001234567');
+      expect(result.filings).toEqual([]);
+    });
+
+    it('maps 404 from the serverless to NotFoundError', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'not found', kind: 'NotFound' }), { status: 404 })
+      );
+      const provider = makeProviderHttp(fetchMock);
+      await expect(provider.thirteenFFilings('0001067983')).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
   describe('subprocess mode (smoke)', () => {
     function fakeSpawn(stdout: string, exitCode: number) {
       return () => {
