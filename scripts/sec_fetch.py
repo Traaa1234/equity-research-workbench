@@ -387,9 +387,9 @@ def fetch_filing(primary_url: str, form_type: str) -> dict:
 def _parse_information_table(xml_bytes):
     """Parse a 13F-HR InformationTable XML into a list of position dicts.
 
-    SEC reports <value> in thousands of dollars — multiply by 1000 for
-    value_usd. Returns a list of position dicts; skips rows whose
-    required fields are missing or non-numeric.
+    SEC reports <value> in dollars directly since Feb 2023 (was thousands prior).
+    The <value> element is now value_usd as-is. Returns a list of position dicts;
+    skips rows whose required fields are missing or non-numeric.
     """
     soup = BeautifulSoup(xml_bytes, 'xml')
     positions = []
@@ -403,7 +403,7 @@ def _parse_information_table(xml_bytes):
         if not (cusip_el and value_el and shares_el):
             continue
         try:
-            value_thousands = int(value_el.text.strip())
+            value_dollars = int(value_el.text.strip())
             shares = int(shares_el.text.strip())
         except (ValueError, AttributeError):
             continue
@@ -411,7 +411,7 @@ def _parse_information_table(xml_bytes):
             'cusip': cusip_el.text.strip(),
             'issuer_name': name_el.text.strip() if name_el else '',
             'class_title': class_el.text.strip() if class_el else '',
-            'value_usd': value_thousands * 1000,
+            'value_usd': value_dollars,
             'shares': shares,
             'shares_type': shares_type_el.text.strip() if shares_type_el else 'SH'
         })

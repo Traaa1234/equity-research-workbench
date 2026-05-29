@@ -290,9 +290,9 @@ def extract_sections(text, form_type):
 def _parse_information_table(xml_bytes):
     """Parse a 13F-HR InformationTable XML into a list of position dicts.
 
-    SEC reports <value> in thousands of dollars — multiply by 1000 for
-    value_usd. Returns a list of position dicts; skips rows whose
-    required fields are missing or non-numeric.
+    SEC reports <value> in dollars directly since Feb 2023 (was thousands prior).
+    The <value> element is now value_usd as-is. Returns a list of position dicts;
+    skips rows whose required fields are missing or non-numeric.
     """
     if BeautifulSoup is None:
         raise RuntimeError("BeautifulSoup not installed")
@@ -308,7 +308,7 @@ def _parse_information_table(xml_bytes):
         if not (cusip_el and value_el and shares_el):
             continue
         try:
-            value_thousands = int(value_el.text.strip())
+            value_dollars = int(value_el.text.strip())
             shares = int(shares_el.text.strip())
         except (ValueError, AttributeError):
             continue
@@ -316,7 +316,7 @@ def _parse_information_table(xml_bytes):
             'cusip': cusip_el.text.strip(),
             'issuer_name': name_el.text.strip() if name_el else '',
             'class_title': class_el.text.strip() if class_el else '',
-            'value_usd': value_thousands * 1000,
+            'value_usd': value_dollars,
             'shares': shares,
             'shares_type': shares_type_el.text.strip() if shares_type_el else 'SH'
         })
@@ -568,8 +568,8 @@ if __name__ == '__main__':
         assert len(positions) == 3, f"expected 3 positions, got {len(positions)}"
         aapl = next(p for p in positions if p['cusip'] == '037833100')
         assert aapl['issuer_name'] == 'APPLE INC', f"expected APPLE INC, got {aapl['issuer_name']!r}"
-        # SEC reports value in thousands; parser multiplies by 1000
-        assert aapl['value_usd'] == 263_012_040_000, f"expected 263012040000, got {aapl['value_usd']}"
+        # SEC reports value in dollars directly (Feb 2023+); parser passes through
+        assert aapl['value_usd'] == 263_012_040, f"expected 263012040, got {aapl['value_usd']}"
         assert aapl['shares'] == 905_560_000
         assert aapl['shares_type'] == 'SH'
         print('[thirteen_f_filings] inline assertions PASS')

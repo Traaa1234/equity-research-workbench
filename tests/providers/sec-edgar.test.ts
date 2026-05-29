@@ -94,7 +94,7 @@ describe('SecEdgarProviderImpl (HTTP mode)', () => {
                 cusip: '037833100',
                 issuer_name: 'APPLE INC',
                 class_title: 'COM',
-                value_usd: 263012040000,
+                value_usd: 263012040,
                 shares: 905560000,
                 shares_type: 'SH'
               }
@@ -112,7 +112,7 @@ describe('SecEdgarProviderImpl (HTTP mode)', () => {
       expect(result.investorName).toBe('BERKSHIRE HATHAWAY INC');
       expect(result.filings).toHaveLength(1);
       expect(result.filings[0]!.reportPeriod).toBe('2026-03-31');
-      expect(result.filings[0]!.positions[0]!.valueUsd).toBe(263012040000);
+      expect(result.filings[0]!.positions[0]!.valueUsd).toBe(263012040);
       expect(result.filings[0]!.positions[0]!.sharesType).toBe('SH');
     });
 
