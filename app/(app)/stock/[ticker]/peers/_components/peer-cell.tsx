@@ -9,16 +9,20 @@ interface Props {
   title?: string;
 }
 
+// Compact USD: handles negatives, sub-million, and the K/M/B/T ladder.
+// Examples: -$45.0M, $250.0K, $890.5B, $3.2T
+const COMPACT_USD = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  notation: 'compact',
+  maximumFractionDigits: 1
+});
+
 function formatValue(value: number | null, format: Props['format']): string {
   if (value == null || !Number.isFinite(value)) return '—';
   switch (format) {
-    case 'currency': {
-      // Compact USD: $3.2T, $890B, $245M
-      if (value >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
-      if (value >= 1e9)  return `$${(value / 1e9).toFixed(1)}B`;
-      if (value >= 1e6)  return `$${(value / 1e6).toFixed(1)}M`;
-      return `$${value.toFixed(0)}`;
-    }
+    case 'currency':
+      return COMPACT_USD.format(value);
     case 'multiple':
       return `${value.toFixed(1)}x`;
     case 'percent':
@@ -27,6 +31,12 @@ function formatValue(value: number | null, format: Props['format']): string {
       return value.toFixed(0);
     case 'similarity':
       return `${Math.round(value * 100)}%`;
+    default: {
+      // Exhaustiveness check: TypeScript will error here if a new format
+      // literal is added to the union but not handled above.
+      const _exhaustive: never = format;
+      return String(_exhaustive);
+    }
   }
 }
 
