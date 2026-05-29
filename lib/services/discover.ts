@@ -137,10 +137,16 @@ export class DiscoverService {
     const queryVecLit = '[' + queryVec.join(',') + ']';
 
     // 2. Build WHERE clause from parsed filters. Description embedding must be non-null.
+    //
+    // Hard filters: country / exchange / market cap (unambiguous identity).
+    // Soft filters: sector / industry — kept in ParsedQuery for the filter
+    // summary chip + concept ranking via embedding, but NOT applied as
+    // WHERE clauses. yfinance's sector tags don't always match user intent
+    // ("CPG" → "Consumer Defensive" excludes NTCO which is "Consumer
+    // Cyclical"). The description embedding does the conceptual matching;
+    // a strict sector filter just hurts recall.
     const conditions = [isNotNull(companiesUniverse.descriptionEmbedding)];
     if (parsed.country) conditions.push(eq(companiesUniverse.country, parsed.country));
-    if (parsed.sector) conditions.push(eq(companiesUniverse.sector, parsed.sector));
-    if (parsed.industry) conditions.push(eq(companiesUniverse.industry, parsed.industry));
     if (parsed.exchanges.length > 0) conditions.push(inArray(companiesUniverse.exchange, parsed.exchanges));
     if (parsed.marketCapMin != null) conditions.push(gte(companiesUniverse.marketCap, String(parsed.marketCapMin)));
     if (parsed.marketCapMax != null) conditions.push(lte(companiesUniverse.marketCap, String(parsed.marketCapMax)));
@@ -163,7 +169,10 @@ export class DiscoverService {
       .orderBy(sql`${companiesUniverse.descriptionEmbedding} <=> ${queryVecLit}::vector`)
       .limit(limit);
 
-    const hasStructuredFilter = parsed.country || parsed.sector || parsed.industry || parsed.exchanges.length > 0 || parsed.marketCapMin != null || parsed.marketCapMax != null;
+    // Only count HARD filters here — sector/industry are soft (ranking
+    // hints only) and don't affect the WHERE clause, so they shouldn't
+    // trigger the zero-prefilter fallback path.
+    const hasStructuredFilter = parsed.country || parsed.exchanges.length > 0 || parsed.marketCapMin != null || parsed.marketCapMax != null;
 
     // 4. Fallback to full-universe scan when prefilter yielded zero rows
     if (rows.length === 0 && hasStructuredFilter) {

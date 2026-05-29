@@ -67,7 +67,9 @@ describe('DiscoverService.search', () => {
     expect(results[0]!.similarity).toBeGreaterThan(results[1]!.similarity);
   });
 
-  it('prefilters by sector + exchange and ranks by similarity', async () => {
+  it('treats sector as a SOFT filter — does not exclude rows by sector', async () => {
+    // Parsed sector='Technology' must NOT exclude CCC/DDD (Consumer Defensive).
+    // Exchange stays hard, so all 5 embedded rows on NYSE/NASDAQ should appear.
     const qwen = mockQwen({
       country: null, sector: 'Technology', industry: null,
       exchanges: ['NYSE', 'NASDAQ'], conceptText: 'concept A',
@@ -77,7 +79,9 @@ describe('DiscoverService.search', () => {
     const svc = new DiscoverService({ db: dbH.db, qwenProvider: qwen, embeddingsProvider: emb, redis: mockRedis });
 
     const results = await svc.search('tech', 10);
-    expect(results.map((r) => r.ticker).sort()).toEqual(['AAA', 'BBB', 'EEE']);
+    // All 5 rows with embeddings on NYSE/NASDAQ: AAA, BBB, CCC, DDD, EEE.
+    // FFF is excluded because descriptionEmbedding is null.
+    expect(results.map((r) => r.ticker).sort()).toEqual(['AAA', 'BBB', 'CCC', 'DDD', 'EEE']);
     expect(results[0]!.similarity).toBeGreaterThan(0.99);
   });
 
