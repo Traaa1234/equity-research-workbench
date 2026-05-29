@@ -285,7 +285,9 @@ export async function enrichWithYfinance(
 
 // ----- Phase 3: batch embed descriptions -----
 
-const EMBED_BATCH = 25;
+// DashScope embedding API caps batch size at 10 (their docs say 25 but the
+// live API rejects anything above 10 with "batch size is invalid").
+const EMBED_BATCH = 10;
 
 export async function batchEmbedDescriptions(
   enriched: Map<string, EnrichedRow>,
