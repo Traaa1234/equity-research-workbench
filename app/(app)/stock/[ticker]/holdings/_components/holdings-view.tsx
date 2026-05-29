@@ -3,18 +3,17 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { type HoldingsAggregate, type HolderDelta } from '@/lib/compute/holdings-aggregate';
-import { matchSmartMoney, type SmartMoneyCategory } from '@/lib/compute/smart-money';
-import type { InstitutionalHolding } from '@/lib/services/holdings';
+import type { HoldingsAggregate } from '@/lib/compute/holdings-aggregate';
+import type { EnrichedHolding } from '@/lib/services/holdings';
 import { HoldingsAggregatePanel } from './holdings-aggregate-panel';
 import { SmartMoneyCallout } from './smart-money-callout';
 import { HolderRow } from './holder-row';
 
-type FilterMode = 'all' | 'smart-money' | 'new' | 'exits' | 'additions' | 'reductions';
+type FilterMode = 'all' | 'new' | 'exits' | 'additions' | 'reductions';
 
 interface Props {
   ticker: string;
-  holdings: InstitutionalHolding[];
+  holdings: EnrichedHolding[];
   aggregate: HoldingsAggregate;
   availablePeriods: string[];
   selectedPeriod: string | null;
@@ -22,24 +21,15 @@ interface Props {
 
 const FILTERS: Array<{ value: FilterMode; label: string }> = [
   { value: 'all',          label: 'All holders' },
-  { value: 'smart-money',  label: 'Smart money only' },
   { value: 'additions',    label: 'Additions only' },
   { value: 'reductions',   label: 'Reductions only' },
   { value: 'new',          label: 'New positions only' },
   { value: 'exits',        label: 'Exits only' }
 ];
 
-interface HoldingPlus extends InstitutionalHolding {
-  delta: HolderDelta;
-  sharesPrev: number | null;
-  isSmartMoney: boolean;
-  smartMoneyCategory: SmartMoneyCategory | null;
-}
-
-function applyFilter(rows: HoldingPlus[], mode: FilterMode): HoldingPlus[] {
+function applyFilter(rows: EnrichedHolding[], mode: FilterMode): EnrichedHolding[] {
   switch (mode) {
     case 'all':         return rows;
-    case 'smart-money': return rows.filter((r) => r.isSmartMoney);
     case 'additions':   return rows.filter((r) => r.delta === 'added' || r.delta === 'new');
     case 'reductions':  return rows.filter((r) => r.delta === 'reduced' || r.delta === 'sold-out');
     case 'new':         return rows.filter((r) => r.delta === 'new');
@@ -54,35 +44,15 @@ export function HoldingsView({ ticker, holdings, aggregate, availablePeriods, se
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterMode>('all');
 
-  // Build "holdings with delta info" by referencing the aggregate's joined view.
-  // The joined view lives inside aggregate.smartMoneyMoves only for smart-money
-  // entries. We compute isSmartMoney + category for ALL rows here; delta + sharesPrev
-  // come from the aggregate's joined view when available (for smart-money holders).
-  // Non-smart-money rows default to delta='unchanged' (we don't ship the full join
-  // to the client for performance; a deeper "all-holders-with-delta" view is a
-  // possible follow-up).
-  const enriched: HoldingPlus[] = holdings.map((h) => {
-    const sm = matchSmartMoney(h.investorId, h.investorName);
-    const joined = [...aggregate.smartMoneyMoves.additions, ...aggregate.smartMoneyMoves.reductions]
-      .find((j) => j.investorId === h.investorId);
-    return {
-      ...h,
-      delta: joined?.delta ?? 'unchanged',
-      sharesPrev: joined?.sharesPrev ?? null,
-      isSmartMoney: sm !== null,
-      smartMoneyCategory: sm?.category ?? null
-    };
-  });
-
-  const filtered = applyFilter(enriched, filter);
+  const filtered = applyFilter(holdings, filter);
 
   async function refresh() {
     setError(null);
     setRefreshing(true);
     try {
-      const res = await fetch(`/api/tickers/${ticker}/holdings`, { method: 'POST' });
+      const res = await fetch(`/api/holdings/refresh-tracked`, { method: 'POST' });
       if (!res.ok) {
-        if (res.status === 429) setError('Refreshing too quickly — try again in a minute.');
+        if (res.status === 429) setError('Refreshing too quickly — try again in an hour.');
         else {
           const body = await res.json().catch(() => ({}));
           setError((body as { error?: string }).error ?? `Refresh failed (HTTP ${res.status})`);
@@ -121,8 +91,12 @@ export function HoldingsView({ ticker, holdings, aggregate, availablePeriods, se
               ))}
             </select>
           )}
-          <Button onClick={refresh} disabled={refreshing || isPending}>
-            {refreshing ? 'Refreshing…' : 'Refresh'}
+          <Button
+            onClick={refresh}
+            disabled={refreshing || isPending}
+            title="Updates all tracked managers across all watchlist tickers (~10s)"
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh tracked investors'}
           </Button>
         </div>
       </div>
@@ -133,14 +107,7 @@ export function HoldingsView({ ticker, holdings, aggregate, availablePeriods, se
 
       <section>
         <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-sm font-medium">
-            All holders
-            {holdings.length === 200 && (
-              <span className="ml-2 text-xs text-muted-foreground font-normal">
-                · showing top 200 by shares
-              </span>
-            )}
-          </h3>
+          <h3 className="text-sm font-medium">All tracked holders</h3>
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as FilterMode)}
@@ -155,7 +122,7 @@ export function HoldingsView({ ticker, holdings, aggregate, availablePeriods, se
         {filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {holdings.length === 0
-              ? 'No holdings fetched yet. Click Refresh to pull from the latest 13F filings.'
+              ? 'No tracked investor data yet. Click Refresh to pull the latest 13F filings.'
               : 'No holders match the current filter.'}
           </p>
         ) : (

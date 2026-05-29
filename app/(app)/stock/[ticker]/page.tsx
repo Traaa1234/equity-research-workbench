@@ -30,6 +30,7 @@ import { InsiderCard } from './_components/insider-card';
 import { InsidersService } from '@/lib/services/insiders';
 import { HoldingsCard } from './_components/holdings-card';
 import { HoldingsService } from '@/lib/services/holdings';
+import { SecEdgarProviderImpl } from '@/lib/providers/sec-edgar';
 
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 
@@ -54,7 +55,7 @@ export default async function StockPage({ params }: PageProps) {
   const pricesSvc = new PricesService({ db, primary: fd, fallback: yf, redis });
   const financialsSvc = new FinancialsService({ db, primary: fd, fallback: yf, redis });
   const insidersSvc = new InsidersService({ db, fdProvider: fd });
-  const holdingsSvc = new HoldingsService({ db, fdProvider: fd });
+  const holdingsSvc = new HoldingsService({ db, secProvider: new SecEdgarProviderImpl() });
 
   const [snapshot, prices5Y, incomeBundle, balanceBundle, cashFlowBundle, quality, insiderAggregate, insiderHasData, holdingsAggregate, holdingsHasData] = await Promise.all([
     snapshotSvc.get(ticker).catch(() => null),

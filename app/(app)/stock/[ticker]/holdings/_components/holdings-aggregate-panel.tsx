@@ -37,12 +37,14 @@ export function HoldingsAggregatePanel({ aggregate }: Props) {
   return (
     <section className="space-y-3">
       <h2 className="text-lg font-semibold">
-        Summary <span className="text-sm font-normal text-muted-foreground">as of {aggregate.currentPeriod}</span>
+        Tracked investors <span className="text-sm font-normal text-muted-foreground">as of {aggregate.currentPeriod}</span>
       </h2>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-        <span className="text-muted-foreground">Total holders</span>
+        <span className="text-muted-foreground">Tracked investors holding</span>
         <span className="font-mono tabular-nums">{aggregate.totalHolders.toLocaleString()} funds</span>
-        <span className="text-muted-foreground">Top-10 concentration</span>
+        <span className="text-muted-foreground" title="Concentration within our 45 tracked managers, not total float.">
+          Top-10 share-of-tracked
+        </span>
         <span className="font-mono tabular-nums">{(aggregate.top10Concentration * 100).toFixed(1)}%</span>
         <span className="text-muted-foreground">Total market value</span>
         <span className="font-mono tabular-nums">{fmtDollars(aggregate.totalMarketValue)}</span>
@@ -54,7 +56,7 @@ export function HoldingsAggregatePanel({ aggregate }: Props) {
 
       {chartData.length >= 2 && (
         <div className="pt-2">
-          <div className="text-xs text-muted-foreground mb-1">Holder count trend (8 quarters)</div>
+          <div className="text-xs text-muted-foreground mb-1">Tracked investor breadth (out of 45, 8 quarters)</div>
           <div className="h-24">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>

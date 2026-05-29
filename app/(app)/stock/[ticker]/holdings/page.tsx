@@ -4,9 +4,8 @@ import { requireUserId } from '@/lib/auth/current-user';
 import { getServiceDb } from '@/lib/db/client';
 import { companies } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { FinancialDatasetsProvider } from '@/lib/providers/financial-datasets';
+import { SecEdgarProviderImpl } from '@/lib/providers/sec-edgar';
 import { HoldingsService } from '@/lib/services/holdings';
-import { loadServerEnv } from '@/lib/env';
 import { DashboardTabs } from '../_components/dashboard-tabs';
 import { HoldingsView } from './_components/holdings-view';
 
@@ -27,10 +26,9 @@ export default async function HoldingsPage({ params, searchParams }: PageProps) 
   const existing = await db.select().from(companies).where(eq(companies.ticker, ticker)).limit(1);
   if (existing.length === 0) notFound();
 
-  const env = loadServerEnv();
   const svc = new HoldingsService({
     db,
-    fdProvider: new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY })
+    secProvider: new SecEdgarProviderImpl()
   });
 
   const period = searchParams.period && PERIOD_RE.test(searchParams.period) ? searchParams.period : undefined;

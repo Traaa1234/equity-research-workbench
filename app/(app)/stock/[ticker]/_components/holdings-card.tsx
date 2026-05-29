@@ -12,19 +12,14 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(0)}%`;
 }
 
-function fmtCount(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return n.toLocaleString();
-}
-
 export function HoldingsCard({ ticker, aggregate, hasAnyData }: Props) {
   if (!hasAnyData) {
     return (
       <Card>
-        <CardHeader><CardTitle>Institutional holdings</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Tracked investor holdings</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            No 13F data fetched yet.{' '}
+            No tracked investor data yet.{' '}
             <Link href={`/stock/${ticker}/holdings`} className="text-primary hover:underline">
               Visit the Holdings tab
             </Link>{' '}
@@ -38,7 +33,7 @@ export function HoldingsCard({ ticker, aggregate, hasAnyData }: Props) {
   if (!aggregate.currentPeriod) {
     return (
       <Card>
-        <CardHeader><CardTitle>Institutional holdings</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Tracked investor holdings</CardTitle></CardHeader>
         <CardContent className="space-y-1">
           <p className="text-sm text-muted-foreground">No quarterly data yet.</p>
           <div className="pt-2 text-right">
@@ -55,11 +50,11 @@ export function HoldingsCard({ ticker, aggregate, hasAnyData }: Props) {
 
   return (
     <Card>
-      <CardHeader><CardTitle>Institutional holdings</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Tracked investor holdings</CardTitle></CardHeader>
       <CardContent className="space-y-2 text-sm">
         <div className="flex items-baseline justify-between">
-          <span className="text-muted-foreground">Holders</span>
-          <span className="font-mono tabular-nums">{fmtCount(aggregate.totalHolders)} funds</span>
+          <span className="text-muted-foreground">Tracked holding</span>
+          <span className="font-mono tabular-nums">{aggregate.totalHolders} of 45 tracked</span>
         </div>
         <div className="flex items-baseline justify-between">
           <span className="text-muted-foreground">Top-10 stake</span>
