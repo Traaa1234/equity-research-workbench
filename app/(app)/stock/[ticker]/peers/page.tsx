@@ -19,16 +19,8 @@ interface PageProps {
   params: { ticker: string };
 }
 
-async function PeersContent({ ticker }: { ticker: string }) {
-  const db = getServiceDb();
-  const env = loadServerEnv();
-  const redis = getRedisCache();
-  const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
-  const yf = new YFinanceProvider();
-  const svc = new PeersService({ db, primary: yf, fallback: fd, redis });
-
+async function PeersContent({ svc, ticker }: { svc: PeersService; ticker: string }) {
   const result = await svc.getPeers(ticker, 5);
-
   if (result.fallback === 'target_missing') {
     return <PeersEmpty ticker={ticker} reason="target_missing" />;
   }
@@ -39,6 +31,13 @@ export default async function PeersPage({ params }: PageProps) {
   await requireUserId();
   const ticker = params.ticker.toUpperCase();
   if (!TICKER_RE.test(ticker)) notFound();
+
+  const db = getServiceDb();
+  const env = loadServerEnv();
+  const redis = getRedisCache();
+  const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
+  const yf = new YFinanceProvider();
+  const svc = new PeersService({ db, primary: yf, fallback: fd, redis });
 
   return (
     <article className="space-y-6">
@@ -56,7 +55,7 @@ export default async function PeersPage({ params }: PageProps) {
         </CardHeader>
         <CardContent>
           <Suspense fallback={<PeersSkeleton />}>
-            <PeersContent ticker={ticker} />
+            <PeersContent svc={svc} ticker={ticker} />
           </Suspense>
         </CardContent>
       </Card>
