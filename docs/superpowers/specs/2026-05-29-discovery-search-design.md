@@ -43,7 +43,7 @@ The slice ships when typing all three queries returns sensible top-5 results.
                   │  5. For each ticker → yfinance .info               │
                   │     (longBusinessSummary, country, sector,         │
                   │      industry, exchange, marketCap)                │
-                  │  6. Embed description with Qwen (768d)             │
+                  │  6. Embed description with Qwen (1024d)             │
                   │  7. Upsert into companies_universe                 │
                   └────────────────────────────────────────────────────┘
                                        │
@@ -107,7 +107,7 @@ export const companiesUniverse = pgTable(
     sector: text('sector'),                            // yfinance categorical
     industry: text('industry'),                        // yfinance categorical
     description: text('description'),                  // longBusinessSummary
-    descriptionEmbedding: vector('description_embedding', { dimensions: 768 }),
+    descriptionEmbedding: vector('description_embedding', { dimensions: 1024 }),
     marketCap: numeric('market_cap', { precision: 20, scale: 2 }),
     sources: text('sources').array(),                  // ['nyse','nasdaq','etf:BOTZ']
     lastRefreshedAt: timestamp('last_refreshed_at', { withTimezone: true }).notNull().defaultNow()
@@ -163,7 +163,7 @@ Local crawl uses subprocess mode (existing pattern); not via deployed serverless
 
 ### Phase 3 — Embed descriptions
 
-For each enriched row where `description` is non-empty, batch-embed via `QwenProviderImpl.embedBatch(texts, dimensions=768)`. Batch size 32. ~200 batches; ~3 min. Embeddings are 768-d float arrays matching the schema column.
+For each enriched row where `description` is non-empty, batch-embed via `QwenProviderImpl.embedBatch(texts, dimensions=1024)`. Batch size 32. ~200 batches; ~3 min. Embeddings are 1024-d float arrays matching the schema column.
 
 ### Phase 4 — Upsert
 
@@ -228,7 +228,7 @@ async function search(query: string, limit = 20): Promise<DiscoverResult[]>
 Steps:
 1. `parsed = await parseQuery(query)`.
 2. **SQL prefilter** — single SELECT with WHERE clauses for each non-null parsed field. Returns candidate set.
-3. **Embed `conceptText`** with Qwen (768-d), cached 5 min in Redis.
+3. **Embed `conceptText`** with Qwen (1024-d), cached 5 min in Redis.
 4. **Vector search over the candidate set** via raw `sql` template:
    ```sql
    SELECT ticker, name, exchange, country, sector, industry, description, market_cap,
