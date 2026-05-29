@@ -229,12 +229,28 @@ export class PeersService {
       this.financialsSvc.refresh(t, 'balance', 'annual'),
       this.financialsSvc.refresh(t, 'cash_flow', 'annual')
     ]);
-    const timeout = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout'), PEER_TIMEOUT_MS)
-    );
+
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timerId = setTimeout(() => resolve('timeout'), PEER_TIMEOUT_MS);
+    });
+
     const winner = await Promise.race([work, timeout]);
+    if (timerId !== undefined) clearTimeout(timerId);
+
     if (winner === 'timeout') {
       logger.warn({ ticker: t }, 'peers: ensureDeepData timed out');
+      return;
+    }
+
+    // Only stamp lastRefreshedAt when at least one refresh succeeded — otherwise
+    // a total failure would silently mark the row fresh for 24h, and the next
+    // request would skip ingest entirely and return dataStatus: 'unavailable'.
+    const anyFulfilled = (winner as PromiseSettledResult<unknown>[]).some(
+      (r) => r.status === 'fulfilled'
+    );
+    if (!anyFulfilled) {
+      logger.warn({ ticker: t }, 'peers: ensureDeepData — all refreshes failed, not stamping freshness');
       return;
     }
 
