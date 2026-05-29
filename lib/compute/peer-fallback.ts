@@ -30,16 +30,33 @@ export interface SelectFallbackInput {
 export async function selectFallback(input: SelectFallbackInput): Promise<FallbackResult> {
   const { k, filters, tryQuery } = input;
 
-  const attempts: Array<{ level: FallbackLevel; filters: FilterSet }> = [
+  const allAttempts: Array<{ level: FallbackLevel; filters: FilterSet }> = [
     { level: 'strict',     filters: { country: filters.country, sizeBand: filters.sizeBand } },
     { level: 'no_country', filters: { country: null,            sizeBand: filters.sizeBand } },
     { level: 'no_size',    filters: { country: filters.country, sizeBand: null            } },
     { level: 'global',     filters: { country: null,            sizeBand: null            } }
   ];
 
-  let last: FallbackResult = { level: 'global', tickers: [] };
+  // Dedup: when the target has null country, `strict` and `no_country` produce
+  // identical FilterSets (same for `no_size` and `global` when sizeBand is null,
+  // and all four when both are null). Drop later duplicates so we don't fire
+  // redundant queries and don't mislabel the result.
+  const seen = new Set<string>();
+  const attempts = allAttempts.filter((a) => {
+    const key = `${a.filters.country ?? ''}|${a.filters.sizeBand ? `${a.filters.sizeBand.min}-${a.filters.sizeBand.max}` : ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  let last: FallbackResult = { level: attempts[0]!.level, tickers: [] };
   for (const attempt of attempts) {
-    const tickers = await tryQuery(attempt.filters);
+    let tickers: string[];
+    try {
+      tickers = await tryQuery(attempt.filters);
+    } catch (err) {
+      throw new Error(`selectFallback: tryQuery failed at level "${attempt.level}"`, { cause: err });
+    }
     last = { level: attempt.level, tickers };
     if (tickers.length >= k) return last;
   }

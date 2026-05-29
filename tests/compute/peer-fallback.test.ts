@@ -59,6 +59,41 @@ describe('selectFallback', () => {
     const result = await selectFallback({ k: 5, filters: fullFilters, tryQuery });
     expect(result.level).toBe('strict');
   });
+
+  it('dedupes identical attempts when target has null country', async () => {
+    const tryQuery = vi.fn().mockResolvedValue(['A']);   // 1 result, below K=5
+    const result = await selectFallback({
+      k: 5,
+      filters: { country: null, sizeBand: { min: 100, max: 1000 } },
+      tryQuery
+    });
+    // strict & no_country are identical (country=null); should call only 2 distinct attempts
+    expect(tryQuery).toHaveBeenCalledTimes(2);
+    expect(result.level).toBe('no_size');   // the second distinct level
+  });
+
+  it('dedupes all attempts when both country and sizeBand are null', async () => {
+    const tryQuery = vi.fn().mockResolvedValue(['A']);
+    const result = await selectFallback({
+      k: 5,
+      filters: { country: null, sizeBand: null },
+      tryQuery
+    });
+    // All 4 attempts collapse to one; only one call fires; label is 'strict'
+    expect(tryQuery).toHaveBeenCalledTimes(1);
+    expect(result.level).toBe('strict');
+  });
+
+  it('annotates errors with the level at which tryQuery failed', async () => {
+    const tryQuery = vi.fn().mockRejectedValue(new Error('DB timeout'));
+    await expect(
+      selectFallback({
+        k: 5,
+        filters: { country: 'US', sizeBand: { min: 100, max: 1000 } },
+        tryQuery
+      })
+    ).rejects.toThrow(/level "strict"/);
+  });
 });
 
 describe('FallbackLevel type', () => {
