@@ -161,7 +161,7 @@ export function filingsToCell(
 
 All formatters handle null/empty inputs gracefully (return the `—` or `· quiet` Cell). No throws.
 
-The `Cell.color` is intentionally a small union, not arbitrary Tailwind class names — keeps the cell components decoupled from styling. Color mapping happens in a single helper in `<WatchlistCell>` rendering.
+The `Cell.color` is intentionally a small union, not arbitrary Tailwind class names — keeps the cell components decoupled from styling. Color mapping happens in a single helper inside `<CellChip>` (the shared rendering component listed in the file structure below).
 
 ## Table layout
 
