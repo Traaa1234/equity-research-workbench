@@ -372,3 +372,27 @@ export const institutionalHoldings = pgTable(
     )
   })
 );
+
+export const companiesUniverse = pgTable(
+  'companies_universe',
+  {
+    ticker: text('ticker').primaryKey(),
+    name: text('name').notNull(),
+    exchange: text('exchange'),
+    country: text('country'),
+    sector: text('sector'),
+    industry: text('industry'),
+    description: text('description'),
+    descriptionEmbedding: vector('description_embedding', { dimensions: 1024 }),
+    marketCap: numeric('market_cap', { precision: 20, scale: 2 }),
+    sources: text('sources').array(),
+    lastRefreshedAt: timestamp('last_refreshed_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    descriptionEmbeddingIdx: index('cu_description_embedding_hnsw_idx')
+      .using('hnsw', t.descriptionEmbedding.op('vector_cosine_ops')),
+    countryIdx: index('cu_country_idx').on(t.country),
+    exchangeIdx: index('cu_exchange_idx').on(t.exchange),
+    sectorIdx: index('cu_sector_idx').on(t.sector)
+  })
+);
