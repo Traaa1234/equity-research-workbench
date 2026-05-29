@@ -21,7 +21,7 @@ export function quartileClass(
   allValues: Array<number | null>,
   direction: QuartileDirection
 ): string {
-  if (value == null) return NEUTRAL;
+  if (value == null || !Number.isFinite(value)) return NEUTRAL;
 
   // Filter out nulls; need at least 2 non-null values to distinguish quartiles.
   const finite = allValues.filter((v): v is number => v != null && Number.isFinite(v));

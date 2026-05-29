@@ -38,6 +38,16 @@ describe('quartileClass', () => {
     // Two values tied at 10. With higher-is-better, both 10s land in bottom quartile.
     expect(quartileClass(10, values, 'higher-is-better')).toBe('text-rose-600');
   });
+
+  it('NaN value returns neutral', () => {
+    expect(quartileClass(NaN, [10, 20, 30, 40], 'higher-is-better')).toBe('');
+    expect(quartileClass(NaN, [10, 20, 30, 40], 'lower-is-better')).toBe('');
+  });
+
+  it('Infinity value returns neutral', () => {
+    expect(quartileClass(Infinity, [10, 20, 30, 40], 'higher-is-better')).toBe('');
+    expect(quartileClass(-Infinity, [10, 20, 30, 40], 'lower-is-better')).toBe('');
+  });
 });
 
 describe('QuartileDirection type', () => {
