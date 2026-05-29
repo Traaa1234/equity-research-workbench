@@ -163,6 +163,24 @@ def fetch_company(ticker):
     }
 
 
+def fetch_info(ticker):
+    """
+    Return enrichment metadata for a ticker from yfinance .info dict.
+    Returns only the fields the discovery seeder consumes.
+    """
+    t = yf.Ticker(ticker)
+    info = t.info or {}
+    return {
+        "longBusinessSummary": info.get("longBusinessSummary") or None,
+        "country": info.get("country") or None,
+        "sector": info.get("sector") or None,
+        "industry": info.get("industry") or None,
+        "exchange": info.get("exchange") or None,
+        "marketCap": info.get("marketCap") or None,
+        "longName": info.get("longName") or info.get("shortName") or None,
+    }
+
+
 def fetch_snapshot(ticker):
     t = yf.Ticker(ticker)
     info = t.info
@@ -311,6 +329,8 @@ def dispatch(ticker, kind):
             if res is None:
                 return 404, {"error": f"Ticker not found: {ticker}", "kind": "NotFound"}
             return 200, res
+        if kind == "info":
+            return 200, fetch_info(ticker)
         if kind == "snapshot":
             res = fetch_snapshot(ticker)
             if res is None:

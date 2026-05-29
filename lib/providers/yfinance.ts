@@ -32,6 +32,7 @@ interface Options {
 
 type Kind =
   | 'company'
+  | 'info'
   | 'snapshot'
   | 'prices_1y'
   | 'prices_5y'
@@ -42,6 +43,16 @@ type Kind =
   | 'statements_balance_quarterly'
   | 'statements_cash_flow_annual'
   | 'statements_cash_flow_quarterly';
+
+export interface YfInfo {
+  longBusinessSummary: string | null;
+  country: string | null;
+  sector: string | null;
+  industry: string | null;
+  exchange: string | null;
+  marketCap: number | null;
+  longName: string | null;
+}
 
 const DEFAULT_SCRIPT = path.resolve(process.cwd(), 'scripts/yfinance_fetch.py');
 
@@ -74,6 +85,19 @@ export class YFinanceProvider implements Provider {
   async company(ticker: string): Promise<CompanyData> {
     const out = await this.run(ticker, 'company');
     return out as CompanyData;
+  }
+
+  async info(ticker: string): Promise<YfInfo> {
+    const out = await this.run(ticker, 'info');
+    return {
+      longBusinessSummary: out?.longBusinessSummary ?? null,
+      country: out?.country ?? null,
+      sector: out?.sector ?? null,
+      industry: out?.industry ?? null,
+      exchange: out?.exchange ?? null,
+      marketCap: out?.marketCap ?? null,
+      longName: out?.longName ?? null
+    };
   }
 
   async snapshot(ticker: string): Promise<SnapshotData> {

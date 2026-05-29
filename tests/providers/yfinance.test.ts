@@ -104,4 +104,51 @@ describe('YFinanceProvider', () => {
     const bundle = await provider.statements('XYZ', 'balance', 'quarterly');
     expect(bundle.rows).toEqual([]);
   });
+
+  describe('.info()', () => {
+    it('returns info fields mapped from yfinance .info', async () => {
+      const spawnImpl = vi.fn(fakeSpawn(
+        JSON.stringify({
+          longBusinessSummary: 'Apple Inc. designs and sells iPhones.',
+          country: 'United States',
+          sector: 'Technology',
+          industry: 'Consumer Electronics',
+          exchange: 'NMS',
+          marketCap: 3000000000000,
+          longName: 'Apple Inc.'
+        }),
+        0
+      ));
+      const provider = makeProvider(spawnImpl);
+
+      const result = await provider.info('AAPL');
+
+      expect(spawnImpl).toHaveBeenCalledOnce();
+      const args = spawnImpl.mock.calls[0]![1] as string[];
+      expect(args).toContain('AAPL');
+      expect(args).toContain('info');
+      expect(result.longBusinessSummary).toContain('Apple');
+      expect(result.country).toBe('United States');
+      expect(result.sector).toBe('Technology');
+      expect(result.marketCap).toBe(3000000000000);
+    });
+
+    it('returns nulls when the upstream returns null fields', async () => {
+      const stdout = JSON.stringify({
+        longBusinessSummary: null,
+        country: null,
+        sector: null,
+        industry: null,
+        exchange: null,
+        marketCap: null,
+        longName: null
+      });
+      const provider = makeProvider(fakeSpawn(stdout, 0));
+
+      const result = await provider.info('DELISTED');
+      expect(result.longBusinessSummary).toBeNull();
+      expect(result.country).toBeNull();
+      expect(result.marketCap).toBeNull();
+    });
+  });
 });
