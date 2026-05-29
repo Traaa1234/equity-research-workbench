@@ -382,13 +382,34 @@ export interface ChunkedProgress {
  * Discover queries start returning results once the first chunk lands, instead
  * of waiting for the whole 6500-ticker crawl to finish.
  */
+/**
+ * Sort tickers by market cap descending so big-name companies (AAPL, NVDA,
+ * MSFT, BABA, …) land in the first chunks. Tickers with unknown / zero
+ * market cap go to the end. Returns ticker strings sorted in process order.
+ */
+export function tickersByMarketCapDesc(skeleton: Map<string, SkeletonRow>): string[] {
+  const entries = Array.from(skeleton.entries());
+  entries.sort(([, a], [, b]) => {
+    const aCap = a.marketCap == null ? 0 : Number(a.marketCap);
+    const bCap = b.marketCap == null ? 0 : Number(b.marketCap);
+    if (!Number.isFinite(aCap) && !Number.isFinite(bCap)) return 0;
+    if (!Number.isFinite(aCap)) return 1;
+    if (!Number.isFinite(bCap)) return -1;
+    return bCap - aCap;
+  });
+  return entries.map(([t]) => t);
+}
+
 export async function enrichEmbedUpsertChunked(
   skeleton: Map<string, SkeletonRow>,
   yf: YfInfoLike,
   emb: EmbProviderLike,
   onProgress?: (p: ChunkedProgress) => void
 ): Promise<ChunkedProgress> {
-  const tickers = Array.from(skeleton.keys());
+  // Process biggest-cap names first so discover queries become useful within
+  // the first chunk or two instead of waiting for the alphabetical-A
+  // warrants/units cluster to clear.
+  const tickers = tickersByMarketCapDesc(skeleton);
   const totals: ChunkedProgress = {
     chunksDone: 0,
     chunksTotal: Math.ceil(tickers.length / CHUNK_SIZE),
