@@ -431,7 +431,10 @@ async function main() {
   process.exit(0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Tsx normalizes paths so the strict import.meta.url === file://argv[1] match
+// can fail on Windows; check via filename suffix instead so the script always
+// runs when invoked via `pnpm seed-universe`.
+if (process.argv[1] && /seed-universe\.ts$/.test(process.argv[1])) {
   main().catch((err) => {
     console.error('seed-universe failed:', err);
     process.exit(1);
