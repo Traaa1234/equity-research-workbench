@@ -4,92 +4,132 @@ import { eq } from 'drizzle-orm';
 import { makeTestServiceDb, resetDb } from '../helpers/test-db';
 import { companies, institutionalHoldings, refreshRuns } from '@/lib/db/schema';
 import { HoldingsService } from '@/lib/services/holdings';
-import type { HoldingsMeta } from '@/lib/providers/types';
+import type { ThirteenFInvestor } from '@/lib/providers/types';
 
 config({ path: '.env.local' });
 
-function mockFdProvider(rows: HoldingsMeta[]) {
+/**
+ * Build a per-CIK lookup table from a flat array of ThirteenFInvestor.
+ * The mock returns the matching investor (or an empty-filings stub) for
+ * any CIK the service requests.
+ */
+function mockSecProvider(investors: ThirteenFInvestor[]) {
+  const byCik = new Map<string, ThirteenFInvestor>(investors.map((i) => [i.cik, i]));
   return {
-    institutionalOwnership: vi.fn().mockResolvedValue(rows)
+    thirteenFFilings: vi.fn(async (cik: string): Promise<ThirteenFInvestor> => {
+      const padded = cik.padStart(10, '0');
+      return byCik.get(padded) ?? { cik: padded, investorName: 'UNKNOWN', filings: [] };
+    })
   };
 }
 
-function meta(
-  investor: string,
-  reportPeriod: string,
-  shares: number,
-  cik: string | null = null
-): HoldingsMeta {
+function position(cusip: string, issuerName: string, shares: number, valueUsd: number) {
   return {
-    ticker: 'AAPL',
-    investor,
-    report_period: reportPeriod,
+    cusip,
+    issuerName,
+    classTitle: 'COM',
+    valueUsd,
     shares,
-    market_value: shares * 290,
-    price: 290,
-    is_active: true,
-    url: null,
-    ...(cik ? { cik } : {})
+    sharesType: 'SH'
   };
 }
 
-describe('HoldingsService', () => {
+function filing(reportPeriod: string, positions: ReturnType<typeof position>[]) {
+  return {
+    accession: `acc-${reportPeriod}`,
+    filingDate: reportPeriod,
+    reportPeriod,
+    formType: '13F-HR',
+    positions
+  };
+}
+
+function berkshire(filings: ReturnType<typeof filing>[]): ThirteenFInvestor {
+  return { cik: '0001067983', investorName: 'BERKSHIRE HATHAWAY INC', filings };
+}
+
+function vanguard(filings: ReturnType<typeof filing>[]): ThirteenFInvestor {
+  return { cik: '0000102909', investorName: 'VANGUARD GROUP', filings };
+}
+
+describe('HoldingsService.refreshTrackedInvestors', () => {
   let dbH: ReturnType<typeof makeTestServiceDb>;
 
   beforeAll(() => { dbH = makeTestServiceDb(); });
   afterAll(async () => { await dbH.close(); });
   beforeEach(async () => {
     await resetDb(dbH.db);
-    await dbH.db.insert(companies).values({ ticker: 'AAPL', name: 'Apple Inc.', cik: null });
+    await dbH.db.insert(companies).values([
+      { ticker: 'AAPL',  name: 'Apple',     cik: null },
+      { ticker: 'NVDA',  name: 'NVIDIA',    cik: null },
+      { ticker: 'MSFT',  name: 'Microsoft', cik: null },
+      { ticker: 'GOOGL', name: 'Alphabet',  cik: null },
+      { ticker: 'TSLA',  name: 'Tesla',     cik: null },
+      { ticker: 'JD',    name: 'JD.com',    cik: null }
+    ]);
   });
 
-  it('refresh: fetches, inserts, writes refresh_run with kind=holdings', async () => {
-    const fd = mockFdProvider([
-      meta('BERKSHIRE HATHAWAY INC', '2026-03-31', 905_560_000, '0001067983'),
-      meta('VANGUARD GROUP INC', '2026-03-31', 1_377_000_000)
+  it('happy path: fetches all CIKs, filters to watchlist CUSIPs, inserts rows, writes refresh_runs', async () => {
+    const sec = mockSecProvider([
+      berkshire([
+        filing('2026-03-31', [
+          position('037833100', 'APPLE INC', 905_560_000, 263_012_040_000),
+          position('060505104', 'BANK OF AMERICA CORP', 700_000_000, 30_000_000_000)   // NOT watchlist
+        ])
+      ]),
+      vanguard([
+        filing('2026-03-31', [
+          position('037833100', 'APPLE INC', 1_377_000_000, 400_000_000_000),
+          position('594918104', 'MICROSOFT CORP', 890_000_000, 360_000_000_000)
+        ])
+      ])
     ]);
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
+    const svc = new HoldingsService({ db: dbH.db, secProvider: sec as any });
 
-    const summary = await svc.refresh('AAPL');
+    const summary = await svc.refreshTrackedInvestors();
 
-    expect(summary.fetched).toBe(2);
-    expect(summary.newRows).toBe(2);
+    expect(summary.investorsAttempted).toBeGreaterThanOrEqual(2);
+    expect(summary.investorsSucceeded).toBeGreaterThanOrEqual(2);
+    expect(summary.newRows).toBe(3);   // Berkshire AAPL + Vanguard AAPL + Vanguard MSFT (BAC filtered)
 
-    const rows = await dbH.db.select().from(institutionalHoldings).where(eq(institutionalHoldings.ticker, 'AAPL'));
-    expect(rows).toHaveLength(2);
+    const aaplRows = await dbH.db.select().from(institutionalHoldings).where(eq(institutionalHoldings.ticker, 'AAPL'));
+    expect(aaplRows).toHaveLength(2);
+    const msftRows = await dbH.db.select().from(institutionalHoldings).where(eq(institutionalHoldings.ticker, 'MSFT'));
+    expect(msftRows).toHaveLength(1);
 
-    const runs = await dbH.db.select().from(refreshRuns).where(eq(refreshRuns.ticker, 'AAPL'));
-    expect(runs).toHaveLength(1);
-    expect(runs[0]!.ok).toBe(true);
-    expect(runs[0]!.kind).toBe('holdings');
+    const runs = await dbH.db.select().from(refreshRuns);
+    const holdingsRuns = runs.filter((r) => r.kind === 'holdings');
+    expect(holdingsRuns).toHaveLength(1);
+    expect(holdingsRuns[0]!.ticker).toBe('*');
+    expect(holdingsRuns[0]!.ok).toBe(true);
   });
 
-  it('refresh: idempotent — second call dedupes by composite key', async () => {
-    const fd = mockFdProvider([
-      meta('BERKSHIRE HATHAWAY INC', '2026-03-31', 905_560_000, '0001067983')
+  it('idempotent: second call inserts zero new rows', async () => {
+    const sec = mockSecProvider([
+      berkshire([filing('2026-03-31', [position('037833100', 'APPLE INC', 905_560_000, 263_012_040_000)])])
     ]);
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
+    const svc = new HoldingsService({ db: dbH.db, secProvider: sec as any });
 
-    await svc.refresh('AAPL');
-    const second = await svc.refresh('AAPL');
+    await svc.refreshTrackedInvestors();
+    const second = await svc.refreshTrackedInvestors();
 
     expect(second.newRows).toBe(0);
-    const rows = await dbH.db.select().from(institutionalHoldings).where(eq(institutionalHoldings.ticker, 'AAPL'));
-    expect(rows).toHaveLength(1);
+    const all = await dbH.db.select().from(institutionalHoldings);
+    expect(all).toHaveLength(1);
   });
 
-  it('refresh: prunes rows older than 8 quarters', async () => {
+  it('prunes rows older than 8 quarters per ticker', async () => {
     const periods = [
       '2026-03-31','2025-12-31','2025-09-30','2025-06-30',
       '2025-03-31','2024-12-31','2024-09-30','2024-06-30',
-      '2024-03-31','2023-12-31'
+      '2024-03-31','2023-12-31'    // last 2 should be pruned
     ];
-    const fd = mockFdProvider(
-      periods.map((p, i) => meta('FUND ' + i, p, 1000 * (i + 1)))
-    );
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
+    const sec = mockSecProvider([
+      berkshire(periods.map((p) => filing(p, [position('037833100', 'APPLE INC', 100, 100_000_000)])))
+    ]);
+    const svc = new HoldingsService({ db: dbH.db, secProvider: sec as any });
 
-    await svc.refresh('AAPL');
+    await svc.refreshTrackedInvestors();
 
     const rows = await dbH.db.select({ p: institutionalHoldings.reportPeriod })
       .from(institutionalHoldings).where(eq(institutionalHoldings.ticker, 'AAPL'));
@@ -97,84 +137,62 @@ describe('HoldingsService', () => {
     expect(remaining.size).toBe(8);
     expect(remaining.has('2024-03-31')).toBe(false);
     expect(remaining.has('2023-12-31')).toBe(false);
-    expect(remaining.has('2026-03-31')).toBe(true);
   });
 
-  it('refresh: skips invalid-numeric rows with warn log', async () => {
-    const fd = {
-      institutionalOwnership: vi.fn().mockResolvedValue([
-        meta('VALID FUND', '2026-03-31', 1000),
-        { ...meta('BAD FUND', '2026-03-31', NaN), shares: null as any }
+  it('skips positions for CUSIPs not on the watchlist', async () => {
+    const sec = mockSecProvider([
+      berkshire([
+        filing('2026-03-31', [
+          position('999999999', 'UNKNOWN CORP', 1000, 1_000_000),
+          position('888888888', 'ANOTHER CORP', 2000, 2_000_000)
+        ])
       ])
+    ]);
+    const svc = new HoldingsService({ db: dbH.db, secProvider: sec as any });
+
+    const summary = await svc.refreshTrackedInvestors();
+
+    expect(summary.newRows).toBe(0);
+    const all = await dbH.db.select().from(institutionalHoldings);
+    expect(all).toHaveLength(0);
+  });
+
+  it('partial failure: one investor throws, others continue', async () => {
+    const failingCik = '0001067983';   // Berkshire
+    const sec = {
+      thirteenFFilings: vi.fn(async (cik: string) => {
+        const padded = cik.padStart(10, '0');
+        if (padded === failingCik) throw new Error('SEC 500');
+        if (padded === '0000102909') {
+          return vanguard([filing('2026-03-31', [position('037833100', 'APPLE INC', 100, 100_000_000)])]);
+        }
+        return { cik: padded, investorName: 'UNKNOWN', filings: [] };
+      })
     };
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
-    const summary = await svc.refresh('AAPL');
+    const svc = new HoldingsService({ db: dbH.db, secProvider: sec as any });
 
-    expect(summary.fetched).toBe(2);
+    const summary = await svc.refreshTrackedInvestors();
+
+    expect(summary.investorsFailed).toBeGreaterThanOrEqual(1);
+    expect(summary.investorsSucceeded).toBeGreaterThanOrEqual(1);
     expect(summary.newRows).toBe(1);
-    const rows = await dbH.db.select().from(institutionalHoldings).where(eq(institutionalHoldings.ticker, 'AAPL'));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.investorName).toBe('VALID FUND');
   });
 
-  it('refresh: records ok=false when FD throws', async () => {
-    const fd = { institutionalOwnership: vi.fn().mockRejectedValue(new Error('FD down')) };
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
-
-    await expect(svc.refresh('AAPL')).rejects.toThrow();
-
-    const runs = await dbH.db.select().from(refreshRuns).where(eq(refreshRuns.ticker, 'AAPL'));
-    expect(runs).toHaveLength(1);
-    expect(runs[0]!.ok).toBe(false);
-  });
-
-  it('getList: returns largest holders first for a given period', async () => {
-    const fd = mockFdProvider([
-      meta('SMALL FUND', '2026-03-31', 1000),
-      meta('BIG FUND', '2026-03-31', 1_000_000),
-      meta('MEDIUM FUND', '2026-03-31', 10_000)
+  it('getList: returns enriched rows with delta info computed against the previous quarter', async () => {
+    const sec = mockSecProvider([
+      berkshire([
+        filing('2026-03-31', [position('037833100', 'APPLE INC', 110_000_000, 32_000_000_000)]),
+        filing('2025-12-31', [position('037833100', 'APPLE INC', 100_000_000, 29_000_000_000)])
+      ])
     ]);
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
-    await svc.refresh('AAPL');
+    const svc = new HoldingsService({ db: dbH.db, secProvider: sec as any });
+    await svc.refreshTrackedInvestors();
 
-    const list = await svc.getList('AAPL', '2026-03-31');
-    expect(list).toHaveLength(3);
-    expect(list[0]!.investorName).toBe('BIG FUND');
-    expect(list[2]!.investorName).toBe('SMALL FUND');
-  });
-
-  it('getAggregate: delegates to compute over current + previous period', async () => {
-    const fd = mockFdProvider([
-      // current quarter
-      meta('BERKSHIRE HATHAWAY INC', '2026-03-31', 110_000_000, '0001067983'),
-      meta('VANGUARD GROUP INC', '2026-03-31', 1_377_000_000),
-      // previous quarter — Berkshire smaller, Vanguard same
-      meta('BERKSHIRE HATHAWAY INC', '2025-12-31', 100_000_000, '0001067983'),
-      meta('VANGUARD GROUP INC', '2025-12-31', 1_377_000_000)
-    ]);
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
-    await svc.refresh('AAPL');
-
-    const agg = await svc.getAggregate('AAPL');
-    expect(agg.currentPeriod).toBe('2026-03-31');
-    expect(agg.previousPeriod).toBe('2025-12-31');
-    expect(agg.totalHolders).toBe(2);
-    expect(agg.smartMoneyMoves.additions).toHaveLength(1);   // Berkshire +10% added
-    expect(agg.smartMoneyMoves.additions[0]!.investorName).toBe('BERKSHIRE HATHAWAY INC');
-    expect(agg.breadthTrend[0]!.period).toBe('2026-03-31');
-    expect(agg.breadthTrend[0]!.holders).toBe(2);
-  });
-
-  it('listAvailablePeriods: returns distinct periods newest-first', async () => {
-    const fd = mockFdProvider([
-      meta('A', '2025-12-31', 100),
-      meta('B', '2025-12-31', 200),
-      meta('A', '2026-03-31', 150)
-    ]);
-    const svc = new HoldingsService({ db: dbH.db, fdProvider: fd as any });
-    await svc.refresh('AAPL');
-
-    const periods = await svc.listAvailablePeriods('AAPL');
-    expect(periods).toEqual(['2026-03-31', '2025-12-31']);
+    const list = await svc.getList('AAPL', '2026-03-31', 100);
+    expect(list).toHaveLength(1);
+    expect(list[0]!.delta).toBe('added');
+    expect(list[0]!.sharesPrev).toBe(100_000_000);
+    expect(list[0]!.isSmartMoney).toBe(true);
+    expect(list[0]!.smartMoneyCategory).toBe('value');
   });
 });

@@ -1,29 +1,32 @@
-import { and, desc, eq, lt } from 'drizzle-orm';
-import { institutionalHoldings, refreshRuns } from '@/lib/db/schema';
+import { and, desc, eq, lt, sql } from 'drizzle-orm';
+import { companies, institutionalHoldings, refreshRuns } from '@/lib/db/schema';
 import type { ServiceDb } from '@/lib/db/client';
-import type { HoldingsMeta } from '@/lib/providers/types';
+import type { ThirteenFInvestor } from '@/lib/providers/types';
 import {
   computeHoldingsAggregate,
   joinHoldersWithDeltas,
   type HoldingsAggregate,
-  type HoldingsRow
+  type HoldingsRow,
+  type HolderDelta
 } from '@/lib/compute/holdings-aggregate';
-import { normalizeInvestorName } from '@/lib/compute/smart-money';
+import { matchSmartMoney, type SmartMoneyCategory, getReverseLookupCiks } from '@/lib/compute/smart-money';
+import { tickerForCusip, watchlistCusips, CUSIP_BY_TICKER } from '@/lib/compute/cusip-map';
 import { logger } from '@/lib/logger';
 
-interface FdHoldingsProvider {
-  institutionalOwnership(
-    ticker: string,
-    opts?: { limit?: number; reportPeriodGte?: string; reportPeriodLte?: string }
-  ): Promise<HoldingsMeta[]>;
+interface SecHoldingsProvider {
+  thirteenFFilings(cik: string): Promise<ThirteenFInvestor>;
 }
 
 interface Deps {
   db: ServiceDb;
-  fdProvider: FdHoldingsProvider;
+  secProvider: SecHoldingsProvider;
 }
 
-export interface InstitutionalHolding {
+/**
+ * One row returned by getList. Carries delta + smart-money fields
+ * inline so the UI doesn't have to recompute or shim them.
+ */
+export interface EnrichedHolding {
   id: string;
   ticker: string;
   investorId: string;
@@ -34,17 +37,21 @@ export interface InstitutionalHolding {
   sharesPctOfPortfolio: number | null;
   sharesPctOfShareholders: number | null;
   filingDate: string;
+  delta: HolderDelta;
+  sharesPrev: number | null;
+  isSmartMoney: boolean;
+  smartMoneyCategory: SmartMoneyCategory | null;
 }
 
-export interface HoldingsRefreshSummary {
-  ticker: string;
-  fetched: number;
+export interface TrackedInvestorRefreshSummary {
+  investorsAttempted: number;
+  investorsSucceeded: number;
+  investorsFailed: number;
   newRows: number;
   prunedRows: number;
   durationMs: number;
 }
 
-const REFRESH_FETCH_LIMIT = 500;
 const WINDOW_QUARTERS = 8;
 
 function numToStr(n: number | null | undefined): string | null {
@@ -53,15 +60,19 @@ function numToStr(n: number | null | undefined): string | null {
   return String(n);
 }
 
-function deriveInvestorId(meta: HoldingsMeta): string {
-  if (meta.cik && /^\d+$/.test(meta.cik)) return meta.cik.padStart(10, '0');
-  return normalizeInvestorName(meta.investor);
-}
-
 function quartersBefore(periodIso: string, n: number): string {
   const t = Date.parse(periodIso + 'T00:00:00Z');
   const cutoff = new Date(t - n * 90 * 24 * 60 * 60 * 1000);
   return cutoff.toISOString().slice(0, 10);
+}
+
+function classifyDeltaInline(currentShares: number, prevShares: number | null): HolderDelta {
+  if (prevShares == null || prevShares === 0) return currentShares > 0 ? 'new' : 'unchanged';
+  if (currentShares === 0) return 'sold-out';
+  const pctChange = (currentShares - prevShares) / prevShares;
+  if (pctChange > 0.05) return 'added';
+  if (pctChange < -0.05) return 'reduced';
+  return 'unchanged';
 }
 
 export class HoldingsService {
@@ -71,11 +82,22 @@ export class HoldingsService {
     ticker: string,
     reportPeriod?: string,
     limit = 200
-  ): Promise<InstitutionalHolding[]> {
+  ): Promise<EnrichedHolding[]> {
     const t = ticker.toUpperCase();
     const period = reportPeriod ?? (await this.latestPeriod(t));
     if (!period) return [];
-    const rows = await this.deps.db
+
+    const periodsRows = await this.deps.db
+      .selectDistinct({ p: institutionalHoldings.reportPeriod })
+      .from(institutionalHoldings)
+      .where(eq(institutionalHoldings.ticker, t))
+      .orderBy(desc(institutionalHoldings.reportPeriod));
+    const periods = periodsRows.map((r) => r.p);
+    const periodIdx = periods.indexOf(period);
+    const prevPeriod =
+      periodIdx >= 0 && periodIdx < periods.length - 1 ? (periods[periodIdx + 1] ?? null) : null;
+
+    const currentRowsRaw = await this.deps.db
       .select()
       .from(institutionalHoldings)
       .where(and(
@@ -84,18 +106,41 @@ export class HoldingsService {
       ))
       .orderBy(desc(institutionalHoldings.shares))
       .limit(limit);
-    return rows.map((r) => ({
-      id: String(r.id),
-      ticker: r.ticker,
-      investorId: r.investorId,
-      investorName: r.investorName,
-      reportPeriod: r.reportPeriod,
-      shares: Number(r.shares),
-      marketValue: r.marketValue == null ? null : Number(r.marketValue),
-      sharesPctOfPortfolio: r.sharesPctOfPortfolio == null ? null : Number(r.sharesPctOfPortfolio),
-      sharesPctOfShareholders: r.sharesPctOfShareholders == null ? null : Number(r.sharesPctOfShareholders),
-      filingDate: r.filingDate
-    }));
+
+    const prevByInvestorId = new Map<string, number>();
+    if (prevPeriod) {
+      const prevRows = await this.deps.db
+        .select({ id: institutionalHoldings.investorId, sh: institutionalHoldings.shares })
+        .from(institutionalHoldings)
+        .where(and(
+          eq(institutionalHoldings.ticker, t),
+          eq(institutionalHoldings.reportPeriod, prevPeriod)
+        ));
+      for (const r of prevRows) prevByInvestorId.set(r.id, Number(r.sh));
+    }
+
+    return currentRowsRaw.map((r) => {
+      const shares = Number(r.shares);
+      const prev = prevByInvestorId.get(r.investorId) ?? null;
+      const delta = classifyDeltaInline(shares, prev);
+      const sm = matchSmartMoney(r.investorId, r.investorName);
+      return {
+        id: String(r.id),
+        ticker: r.ticker,
+        investorId: r.investorId,
+        investorName: r.investorName,
+        reportPeriod: r.reportPeriod,
+        shares,
+        marketValue: r.marketValue == null ? null : Number(r.marketValue),
+        sharesPctOfPortfolio: r.sharesPctOfPortfolio == null ? null : Number(r.sharesPctOfPortfolio),
+        sharesPctOfShareholders: r.sharesPctOfShareholders == null ? null : Number(r.sharesPctOfShareholders),
+        filingDate: r.filingDate,
+        delta,
+        sharesPrev: prev,
+        isSmartMoney: sm !== null,
+        smartMoneyCategory: sm?.category ?? null
+      };
+    });
   }
 
   async getAggregate(ticker: string): Promise<HoldingsAggregate> {
@@ -167,105 +212,110 @@ export class HoldingsService {
     return rows[0]?.p ?? null;
   }
 
-  async refresh(ticker: string): Promise<HoldingsRefreshSummary> {
-    const t = ticker.toUpperCase();
+  async refreshTrackedInvestors(): Promise<TrackedInvestorRefreshSummary> {
     const started = Date.now();
     const startedAt = new Date(started);
-    let fetched = 0;
-    let newRows = 0;
-    let prunedRows = 0;
+    const ciks = getReverseLookupCiks();
+    const cusipSet = new Set(watchlistCusips().map((c) => c.toUpperCase()));
+    const inserts: Array<typeof institutionalHoldings.$inferInsert> = [];
+    let succeeded = 0, failed = 0;
 
-    try {
-      const rawRows = await this.deps.fdProvider.institutionalOwnership(t, { limit: REFRESH_FETCH_LIMIT });
-      fetched = rawRows.length;
-
-      const validRows = rawRows.filter((meta) => {
-        const sh = numToStr(meta.shares);
-        if (sh == null) {
-          logger.warn(
-            { ticker: t, investor: meta.investor, reportPeriod: meta.report_period, rawShares: meta.shares },
-            'holdings.refresh: skipping row with non-numeric shares'
-          );
-          return false;
+    for (const cik of ciks) {
+      try {
+        const investor = await this.deps.secProvider.thirteenFFilings(cik);
+        succeeded++;
+        for (const filing of investor.filings) {
+          for (const pos of filing.positions) {
+            const cusipUpper = pos.cusip.toUpperCase();
+            if (!cusipSet.has(cusipUpper)) continue;
+            const ticker = tickerForCusip(cusipUpper);
+            if (!ticker) continue;
+            const sharesStr = numToStr(pos.shares);
+            if (sharesStr == null) continue;
+            inserts.push({
+              ticker,
+              investorId: cik.padStart(10, '0'),
+              investorName: investor.investorName,
+              reportPeriod: filing.reportPeriod,
+              shares: sharesStr,
+              marketValue: numToStr(pos.valueUsd),
+              sharesPctOfPortfolio: null,
+              sharesPctOfShareholders: null,
+              filingDate: filing.filingDate
+            });
+          }
         }
-        return true;
-      });
-
-      if (validRows.length > 0) {
-        const before = await this.deps.db
-          .select({ id: institutionalHoldings.id })
-          .from(institutionalHoldings)
-          .where(eq(institutionalHoldings.ticker, t));
-        const beforeCount = before.length;
-
-        await this.deps.db
-          .insert(institutionalHoldings)
-          .values(
-            validRows.map((meta) => ({
-              ticker: t,
-              investorId: deriveInvestorId(meta),
-              investorName: meta.investor,
-              reportPeriod: meta.report_period,
-              shares: numToStr(meta.shares)!,
-              marketValue: numToStr(meta.market_value),
-              sharesPctOfPortfolio: numToStr(meta.shares_pct_of_portfolio ?? null),
-              sharesPctOfShareholders: numToStr(meta.shares_pct_of_shareholders ?? null),
-              filingDate: meta.filing_date ?? meta.report_period
-            }))
-          )
-          .onConflictDoNothing();
-
-        const after = await this.deps.db
-          .select({ id: institutionalHoldings.id })
-          .from(institutionalHoldings)
-          .where(eq(institutionalHoldings.ticker, t));
-        newRows = after.length - beforeCount;
+      } catch (err) {
+        failed++;
+        logger.warn({ cik, err: String(err) }, 'refreshTrackedInvestors: investor fetch failed');
       }
+    }
 
-      // Prune: keep only the newest 8 quarters
-      const latest = await this.latestPeriod(t);
-      if (latest) {
-        const cutoff = quartersBefore(latest, WINDOW_QUARTERS);
-        const beforePrune = await this.deps.db
-          .select({ id: institutionalHoldings.id })
-          .from(institutionalHoldings)
+    let newRows = 0;
+    if (inserts.length > 0) {
+      const before = await this.countTotalRows();
+      await this.deps.db.insert(institutionalHoldings).values(inserts).onConflictDoNothing();
+      const after = await this.countTotalRows();
+      newRows = after - before;
+    }
+
+    const prunedRows = await this.pruneAllTickersTo8Q();
+
+    // Ensure the '*' sentinel companies row exists so the refresh_runs FK is satisfied.
+    await this.deps.db
+      .insert(companies)
+      .values({ ticker: '*', name: 'Global refresh sentinel' })
+      .onConflictDoNothing();
+
+    await this.deps.db.insert(refreshRuns).values({
+      ticker: '*',
+      kind: 'holdings',
+      startedAt,
+      completedAt: new Date(),
+      ok: true,
+      sourceUsed: 'sec_edgar'
+    });
+
+    return {
+      investorsAttempted: ciks.length,
+      investorsSucceeded: succeeded,
+      investorsFailed: failed,
+      newRows,
+      prunedRows,
+      durationMs: Date.now() - started
+    };
+  }
+
+  private async countTotalRows(): Promise<number> {
+    const r = await this.deps.db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(institutionalHoldings);
+    return r[0]?.c ?? 0;
+  }
+
+  private async pruneAllTickersTo8Q(): Promise<number> {
+    let total = 0;
+    for (const ticker of Object.keys(CUSIP_BY_TICKER)) {
+      const latest = await this.latestPeriod(ticker);
+      if (!latest) continue;
+      const cutoff = quartersBefore(latest, WINDOW_QUARTERS);
+      const toDelete = await this.deps.db
+        .select({ id: institutionalHoldings.id })
+        .from(institutionalHoldings)
+        .where(and(
+          eq(institutionalHoldings.ticker, ticker),
+          lt(institutionalHoldings.reportPeriod, cutoff)
+        ));
+      if (toDelete.length > 0) {
+        await this.deps.db
+          .delete(institutionalHoldings)
           .where(and(
-            eq(institutionalHoldings.ticker, t),
+            eq(institutionalHoldings.ticker, ticker),
             lt(institutionalHoldings.reportPeriod, cutoff)
           ));
-        if (beforePrune.length > 0) {
-          await this.deps.db
-            .delete(institutionalHoldings)
-            .where(and(
-              eq(institutionalHoldings.ticker, t),
-              lt(institutionalHoldings.reportPeriod, cutoff)
-            ));
-          prunedRows = beforePrune.length;
-        }
+        total += toDelete.length;
       }
-
-      await this.deps.db.insert(refreshRuns).values({
-        ticker: t,
-        kind: 'holdings',
-        startedAt,
-        completedAt: new Date(),
-        ok: true,
-        sourceUsed: 'financial_datasets'
-      });
-
-      return { ticker: t, fetched, newRows, prunedRows, durationMs: Date.now() - started };
-    } catch (err) {
-      await this.deps.db.insert(refreshRuns).values({
-        ticker: t,
-        kind: 'holdings',
-        startedAt,
-        completedAt: new Date(),
-        ok: false,
-        sourceUsed: 'financial_datasets',
-        error: String(err).slice(0, 1000)
-      });
-      logger.warn({ ticker: t, err: String(err) }, 'holdings.refresh failed');
-      throw err;
     }
+    return total;
   }
 }
