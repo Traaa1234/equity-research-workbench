@@ -124,7 +124,7 @@ describe('YFinanceProvider', () => {
       const result = await provider.info('AAPL');
 
       expect(spawnImpl).toHaveBeenCalledOnce();
-      const args = spawnImpl.mock.calls[0]![1] as string[];
+      const args = (spawnImpl.mock.calls[0] as unknown as unknown[])[1] as string[];
       expect(args).toContain('AAPL');
       expect(args).toContain('info');
       expect(result.longBusinessSummary).toContain('Apple');
