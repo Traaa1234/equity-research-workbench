@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { sql, eq, and, inArray, gte, lte, isNotNull } from 'drizzle-orm';
 import type { ServiceDb } from '@/lib/db/client';
 import type { QwenProvider, EmbeddingsProvider } from '@/lib/providers/types';
 import type { RedisCache } from '@/lib/cache/redis';
+import { companiesUniverse } from '@/lib/db/schema';
 import { PARSE_QUERY_SYSTEM_PROMPT, PARSE_QUERY_USER_PROMPT_TEMPLATE } from './discover-prompts';
 import { logger } from '@/lib/logger';
 
@@ -108,5 +110,90 @@ export class DiscoverService {
     const out = validated.data;
     if (!out.conceptText.trim()) out.conceptText = trimmed;
     return out;
+  }
+
+  async search(
+    userQuery: string,
+    limit = 20,
+    prefetchedParsed?: ParsedQuery
+  ): Promise<DiscoverResult[]> {
+    const trimmed = userQuery.trim();
+    if (!trimmed) return [];
+
+    const parsed = prefetchedParsed ?? await this.parseQuery(trimmed);
+    if (!parsed.conceptText.trim()) return [];
+
+    // 1. Embed conceptText (Qwen text-embedding-v4, 1024-d).
+    const embedResult = await this.deps.embeddingsProvider.embed({
+      model: 'text-embedding-v4',
+      texts: [parsed.conceptText]
+    });
+    const queryVec = embedResult.vectors[0];
+    if (!queryVec) {
+      logger.warn({ query: trimmed }, 'discover.search: empty embedding response');
+      return [];
+    }
+
+    const queryVecLit = '[' + queryVec.join(',') + ']';
+
+    // 2. Build WHERE clause from parsed filters. Description embedding must be non-null.
+    const conditions = [isNotNull(companiesUniverse.descriptionEmbedding)];
+    if (parsed.country) conditions.push(eq(companiesUniverse.country, parsed.country));
+    if (parsed.sector) conditions.push(eq(companiesUniverse.sector, parsed.sector));
+    if (parsed.industry) conditions.push(eq(companiesUniverse.industry, parsed.industry));
+    if (parsed.exchanges.length > 0) conditions.push(inArray(companiesUniverse.exchange, parsed.exchanges));
+    if (parsed.marketCapMin != null) conditions.push(gte(companiesUniverse.marketCap, String(parsed.marketCapMin)));
+    if (parsed.marketCapMax != null) conditions.push(lte(companiesUniverse.marketCap, String(parsed.marketCapMax)));
+
+    // 3. Run prefilter + vector ranking.
+    const rows = await this.deps.db
+      .select({
+        ticker: companiesUniverse.ticker,
+        name: companiesUniverse.name,
+        exchange: companiesUniverse.exchange,
+        country: companiesUniverse.country,
+        sector: companiesUniverse.sector,
+        industry: companiesUniverse.industry,
+        description: companiesUniverse.description,
+        marketCap: companiesUniverse.marketCap,
+        similarity: sql<number>`1 - (${companiesUniverse.descriptionEmbedding} <=> ${queryVecLit}::vector)`
+      })
+      .from(companiesUniverse)
+      .where(and(...conditions))
+      .orderBy(sql`${companiesUniverse.descriptionEmbedding} <=> ${queryVecLit}::vector`)
+      .limit(limit);
+
+    const hasStructuredFilter = parsed.country || parsed.sector || parsed.industry || parsed.exchanges.length > 0 || parsed.marketCapMin != null || parsed.marketCapMax != null;
+
+    // 4. Fallback to full-universe scan when prefilter yielded zero rows
+    if (rows.length === 0 && hasStructuredFilter) {
+      const fallbackRows = await this.deps.db
+        .select({
+          ticker: companiesUniverse.ticker,
+          name: companiesUniverse.name,
+          exchange: companiesUniverse.exchange,
+          country: companiesUniverse.country,
+          sector: companiesUniverse.sector,
+          industry: companiesUniverse.industry,
+          description: companiesUniverse.description,
+          marketCap: companiesUniverse.marketCap,
+          similarity: sql<number>`1 - (${companiesUniverse.descriptionEmbedding} <=> ${queryVecLit}::vector)`
+        })
+        .from(companiesUniverse)
+        .where(isNotNull(companiesUniverse.descriptionEmbedding))
+        .orderBy(sql`${companiesUniverse.descriptionEmbedding} <=> ${queryVecLit}::vector`)
+        .limit(limit);
+      return fallbackRows.map((r) => ({
+        ...r,
+        marketCap: r.marketCap == null ? null : Number(r.marketCap),
+        similarity: Number(r.similarity)
+      }));
+    }
+
+    return rows.map((r) => ({
+      ...r,
+      marketCap: r.marketCap == null ? null : Number(r.marketCap),
+      similarity: Number(r.similarity)
+    }));
   }
 }
