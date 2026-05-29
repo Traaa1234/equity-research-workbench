@@ -4,9 +4,10 @@ Vercel Python serverless function: SEC EDGAR fallback fetcher.
 URL: /api/fallback/sec?kind=<KIND>&...
 
 kind values:
-  resolve_cik    requires: ticker
-  index          requires: cik; optional: forms (default 10-K,10-Q), years (default 5)
-  filing         requires: primary_url, form_type
+  resolve_cik           requires: ticker
+  index                 requires: cik; optional: forms (default 10-K,10-Q), years (default 5)
+  filing                requires: primary_url, form_type
+  thirteen_f_filings    requires: cik
 
 Returns JSON. HTTP 200 on success; non-2xx with { error, kind } shape on failure.
 """
@@ -37,6 +38,8 @@ SESSION = None  # initialized lazily so the import doesn't fail in cold-start be
 
 MIN_INTERVAL_SECONDS = 0.21
 _last_request = 0.0
+
+THIRTEEN_F_FORMS = ('13F-HR', '13F-HR/A')
 
 
 SECTION_PATTERNS_10K = [
@@ -284,6 +287,128 @@ def extract_sections(text, form_type):
     return sections
 
 
+def _parse_information_table(xml_bytes):
+    """Parse a 13F-HR InformationTable XML into a list of position dicts.
+
+    SEC reports <value> in thousands of dollars — multiply by 1000 for
+    value_usd. Returns a list of position dicts; skips rows whose
+    required fields are missing or non-numeric.
+    """
+    if BeautifulSoup is None:
+        raise RuntimeError("BeautifulSoup not installed")
+    soup = BeautifulSoup(xml_bytes, 'xml')
+    positions = []
+    for info in soup.find_all('infoTable'):
+        cusip_el = info.find('cusip')
+        value_el = info.find('value')
+        shares_el = info.find('sshPrnamt')
+        shares_type_el = info.find('sshPrnamtType')
+        name_el = info.find('nameOfIssuer')
+        class_el = info.find('titleOfClass')
+        if not (cusip_el and value_el and shares_el):
+            continue
+        try:
+            value_thousands = int(value_el.text.strip())
+            shares = int(shares_el.text.strip())
+        except (ValueError, AttributeError):
+            continue
+        positions.append({
+            'cusip': cusip_el.text.strip(),
+            'issuer_name': name_el.text.strip() if name_el else '',
+            'class_title': class_el.text.strip() if class_el else '',
+            'value_usd': value_thousands * 1000,
+            'shares': shares,
+            'shares_type': shares_type_el.text.strip() if shares_type_el else 'SH'
+        })
+    return positions
+
+
+def fetch_thirteen_f_filings(cik):
+    """Fetch the investor's submissions index, find recent 13F-HR filings
+    (up to 8), download each InformationTable XML via the SEC index.json
+    manifest, return parsed positions.
+
+    Returns (http_status, response_body_dict).
+    """
+    cik_padded = cik.zfill(10)
+    cik_unpadded = str(int(cik_padded))
+
+    # Step 1: investor submissions index
+    sub_url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+    r = throttled_get(sub_url)
+    if r.status_code == 404:
+        return 404, {"error": "investor not found", "kind": "thirteen_f_filings", "cik": cik_padded}
+    if r.status_code == 429:
+        return 503, {"error": "SEC rate limited", "kind": "RateLimit"}
+    if r.status_code >= 500:
+        return 503, {"error": f"SEC returned {r.status_code}", "kind": "Provider"}
+    if not r.ok:
+        return 500, {"error": f"SEC submissions index returned {r.status_code}", "kind": "thirteen_f_filings"}
+    sub_json = r.json()
+    investor_name = sub_json.get("name", "")
+
+    recent = sub_json.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accessions = recent.get("accessionNumber", [])
+    filing_dates = recent.get("filingDate", [])
+    report_dates = recent.get("reportDate", [])
+
+    targets = []
+    for form, acc, fdate, rdate in zip(forms, accessions, filing_dates, report_dates):
+        if form in THIRTEEN_F_FORMS:
+            targets.append({
+                "accession": acc,
+                "filing_date": fdate,
+                "report_period": rdate,
+                "form_type": form,
+            })
+            if len(targets) >= 8:
+                break
+
+    filings = []
+    for t in targets:
+        acc_no_dashes = t["accession"].replace("-", "")
+        archive_dir = f"https://www.sec.gov/Archives/edgar/data/{cik_unpadded}/{acc_no_dashes}/"
+
+        # Step 2: filing's index.json — find the InformationTable XML filename
+        idx_r = throttled_get(archive_dir + "index.json")
+        if idx_r.status_code != 200:
+            continue
+        idx_json = idx_r.json()
+        items = idx_json.get("directory", {}).get("item", [])
+        info_filename = None
+        for item in items:
+            name = item.get("name", "")
+            if "informationtable" in name.lower() and name.lower().endswith(".xml"):
+                info_filename = name
+                break
+        if not info_filename:
+            continue
+
+        # Step 3: download + parse InformationTable XML
+        xml_r = throttled_get(archive_dir + info_filename)
+        if xml_r.status_code != 200:
+            continue
+        try:
+            positions = _parse_information_table(xml_r.content)
+        except Exception:
+            continue
+
+        filings.append({
+            "accession": t["accession"],
+            "filing_date": t["filing_date"],
+            "report_period": t["report_period"],
+            "form_type": t["form_type"],
+            "positions": positions,
+        })
+
+    return 200, {
+        "cik": cik_padded,
+        "investor_name": investor_name,
+        "filings": filings,
+    }
+
+
 def resolve_cik(ticker):
     url = "https://www.sec.gov/files/company_tickers.json"
     resp = throttled_get(url)
@@ -390,6 +515,11 @@ def dispatch(qs):
         if not primary_url or not form_type:
             return 400, {"error": "primary_url and form_type required", "kind": "Validation"}
         return fetch_filing(primary_url, form_type)
+    if kind == "thirteen_f_filings":
+        cik = (qs.get("cik") or [""])[0]
+        if not cik:
+            return 400, {"error": "cik required", "kind": "Validation"}
+        return fetch_thirteen_f_filings(cik)
     return 400, {"error": f"Unknown kind: {kind}", "kind": "Validation"}
 
 
@@ -408,3 +538,23 @@ class handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"error": f"{type(e).__name__}: {e}", "kind": "Provider"}).encode("utf-8"))
+
+
+if __name__ == '__main__':
+    # Inline assertions for _parse_information_table
+    import pathlib
+    fixture_path = pathlib.Path(__file__).resolve().parents[2] / 'lib' / 'providers' / '__fixtures__' / 'sec-13f-berkshire-2026q1.xml'
+    if fixture_path.exists():
+        with open(fixture_path, 'rb') as f:
+            xml_bytes = f.read()
+        positions = _parse_information_table(xml_bytes)
+        assert len(positions) == 3, f"expected 3 positions, got {len(positions)}"
+        aapl = next(p for p in positions if p['cusip'] == '037833100')
+        assert aapl['issuer_name'] == 'APPLE INC', f"expected APPLE INC, got {aapl['issuer_name']!r}"
+        # SEC reports value in thousands; parser multiplies by 1000
+        assert aapl['value_usd'] == 263_012_040_000, f"expected 263012040000, got {aapl['value_usd']}"
+        assert aapl['shares'] == 905_560_000
+        assert aapl['shares_type'] == 'SH'
+        print('[thirteen_f_filings] inline assertions PASS')
+    else:
+        print(f'[thirteen_f_filings] fixture not found at {fixture_path}, skipping inline test')
