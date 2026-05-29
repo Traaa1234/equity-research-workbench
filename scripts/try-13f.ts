@@ -1,15 +1,17 @@
 #!/usr/bin/env tsx
 /**
- * Smoke: pull 13F institutional holdings for a ticker, print summary + recent rows.
- * Usage: pnpm try-13f <TICKER>
+ * Smoke: refresh all tracked investors via SEC EDGAR, print aggregate
+ * and top 10 holders per watchlist ticker. No args.
+ *
+ * Usage: pnpm try-13f
  */
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
 import { getServiceDb } from '@/lib/db/client';
-import { FinancialDatasetsProvider } from '@/lib/providers/financial-datasets';
+import { SecEdgarProviderImpl } from '@/lib/providers/sec-edgar';
 import { HoldingsService } from '@/lib/services/holdings';
-import { loadServerEnv } from '@/lib/env';
+import { CUSIP_BY_TICKER } from '@/lib/compute/cusip-map';
 
 function fmtDollars(n: number | null): string {
   if (n == null) return '—';
@@ -22,58 +24,42 @@ function fmtDollars(n: number | null): string {
 }
 
 async function main() {
-  const ticker = (process.argv[2] ?? '').toUpperCase();
-  if (!/^[A-Z][A-Z.]{0,5}$/.test(ticker)) {
-    console.error('Usage: pnpm try-13f <TICKER>');
-    process.exit(2);
-  }
-
-  const env = loadServerEnv();
   const db = getServiceDb();
-  const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
-  const svc = new HoldingsService({ db, fdProvider: fd });
+  const sec = new SecEdgarProviderImpl();
+  const svc = new HoldingsService({ db, secProvider: sec });
 
-  console.log(`Refreshing 13F holdings for ${ticker}...`);
+  console.log('Refreshing tracked investors via SEC EDGAR...');
   const t0 = Date.now();
-  const summary = await svc.refresh(ticker);
-  console.log(`  fetched: ${summary.fetched}, new: ${summary.newRows}, pruned: ${summary.prunedRows} (${Date.now() - t0}ms)\n`);
+  const summary = await svc.refreshTrackedInvestors();
+  console.log(
+    `  attempted: ${summary.investorsAttempted}, ` +
+    `ok: ${summary.investorsSucceeded}, ` +
+    `failed: ${summary.investorsFailed}, ` +
+    `newRows: ${summary.newRows}, ` +
+    `pruned: ${summary.prunedRows} ` +
+    `(${Date.now() - t0}ms)\n`
+  );
 
-  const agg = await svc.getAggregate(ticker);
-  if (agg.currentPeriod) {
-    console.log(`Aggregate (as of ${agg.currentPeriod}):`);
-    console.log(`  holders:           ${agg.totalHolders.toLocaleString()}`);
+  for (const ticker of Object.keys(CUSIP_BY_TICKER)) {
+    const agg = await svc.getAggregate(ticker);
+    if (!agg.currentPeriod) {
+      console.log(`=== ${ticker}: no tracked investors hold ===\n`);
+      continue;
+    }
+    console.log(`=== ${ticker} (as of ${agg.currentPeriod}) ===`);
+    console.log(`  tracked investors holding: ${agg.totalHolders} of 45`);
     console.log(`  total shares held: ${agg.totalSharesHeld.toLocaleString()}`);
     console.log(`  total mkt value:   ${fmtDollars(agg.totalMarketValue)}`);
-    console.log(`  top-10 concentr:   ${(agg.top10Concentration * 100).toFixed(1)}%`);
+    console.log(`  top-10 share-of:   ${(agg.top10Concentration * 100).toFixed(1)}%`);
     console.log(`  new positions:     ${agg.newPositions}`);
     console.log(`  exits:             ${agg.exits}`);
-    console.log(`  smart-money +:     ${agg.smartMoneyMoves.additions.length}`);
-    console.log(`  smart-money -:     ${agg.smartMoneyMoves.reductions.length}`);
-    console.log(`\nBreadth trend (newest first):`);
-    for (const t of agg.breadthTrend) {
-      console.log(`  ${t.period}: ${t.holders.toLocaleString()} holders`);
+    console.log(`  smart-money +/-:   ${agg.smartMoneyMoves.additions.length}/${agg.smartMoneyMoves.reductions.length}`);
+    const top10 = await svc.getList(ticker, undefined, 10);
+    for (const h of top10) {
+      const flag = h.isSmartMoney ? ` [${h.smartMoneyCategory}]` : '';
+      console.log(`  ${h.investorName.padEnd(40)} ${h.shares.toLocaleString().padStart(14)} sh   ${fmtDollars(h.marketValue)}   ${h.delta}${flag}`);
     }
-    if (agg.smartMoneyMoves.additions.length + agg.smartMoneyMoves.reductions.length > 0) {
-      console.log(`\nSmart-money moves:`);
-      for (const m of agg.smartMoneyMoves.additions) {
-        const prev = m.sharesPrev?.toLocaleString() ?? '0';
-        console.log(`  ▲ ${m.investorName.padEnd(40)} ${prev.padStart(12)} → ${m.shares.toLocaleString().padStart(12)} sh   (${m.delta}, ${m.smartMoneyCategory})`);
-      }
-      for (const m of agg.smartMoneyMoves.reductions) {
-        const prev = m.sharesPrev?.toLocaleString() ?? '0';
-        console.log(`  ▼ ${m.investorName.padEnd(40)} ${prev.padStart(12)} → ${m.shares.toLocaleString().padStart(12)} sh   (${m.delta}, ${m.smartMoneyCategory})`);
-      }
-    }
-  } else {
-    console.log(`No holdings rows for ${ticker} after refresh — likely FD coverage gap.`);
-  }
-
-  const list = await svc.getList(ticker, undefined, 10);
-  if (list.length > 0) {
-    console.log(`\nTop 10 holders:`);
-    for (const h of list) {
-      console.log(`  ${h.investorName.padEnd(40)} ${h.shares.toLocaleString().padStart(14)} sh   ${fmtDollars(h.marketValue)}`);
-    }
+    console.log('');
   }
   process.exit(0);
 }
