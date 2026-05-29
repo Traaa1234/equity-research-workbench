@@ -379,6 +379,25 @@ def fetch_earnings(ticker: str) -> dict:
     return {"earnings": out}
 
 
+def fetch_info(ticker: str) -> dict:
+    """
+    Return enrichment metadata for a ticker from yfinance .info dict.
+    Used by the discovery seeder. Returns only the fields the seeder consumes.
+    """
+    import yfinance as yf
+    t = yf.Ticker(ticker)
+    info = t.info or {}
+    return {
+        "longBusinessSummary": info.get("longBusinessSummary") or None,
+        "country": info.get("country") or None,
+        "sector": info.get("sector") or None,
+        "industry": info.get("industry") or None,
+        "exchange": info.get("exchange") or None,
+        "marketCap": info.get("marketCap") or None,
+        "longName": info.get("longName") or info.get("shortName") or None,
+    }
+
+
 def main():
     if len(sys.argv) < 3:
         fail("Usage: yfinance_fetch.py <ticker> <kind>", "Validation")
@@ -388,6 +407,8 @@ def main():
     try:
         if kind == "company":
             print(json.dumps(fetch_company(ticker)))
+        elif kind == "info":
+            print(json.dumps(fetch_info(ticker)))
         elif kind == "snapshot":
             print(json.dumps(fetch_snapshot(ticker)))
         elif kind == "prices_1y":
