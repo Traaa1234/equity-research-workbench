@@ -4,7 +4,7 @@
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-export type WatchlistTab = 'rollup' | 'list' | 'search' | 'ask';
+export type WatchlistTab = 'rollup' | 'list' | 'discover' | 'search' | 'ask';
 
 interface Props {
   active: WatchlistTab;
@@ -27,6 +27,8 @@ export function WatchlistTabs({ active }: Props) {
       sp.set('tab', 'rollup');
     } else if (tab === 'list') {
       sp.set('tab', 'list');
+    } else if (tab === 'discover') {
+      sp.set('tab', 'discover');
     } else if (tab === 'search') {
       sp.set('tab', 'search');
     } else {
@@ -41,6 +43,7 @@ export function WatchlistTabs({ active }: Props) {
       <TabsList>
         <TabsTrigger value="rollup">Roll-up</TabsTrigger>
         <TabsTrigger value="list">List</TabsTrigger>
+        <TabsTrigger value="discover">Discover</TabsTrigger>
         <TabsTrigger value="search">Search</TabsTrigger>
         <TabsTrigger value="ask">Ask</TabsTrigger>
       </TabsList>

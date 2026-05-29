@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { requireUserId } from '@/lib/auth/current-user';
 import { getServiceDb } from '@/lib/db/client';
 import { WatchlistService } from '@/lib/services/watchlist';
@@ -43,18 +44,26 @@ interface PageProps {
   searchParams: { q?: string; mode?: string; tab?: string; sort?: string };
 }
 
-type TabMode = 'rollup' | 'list' | 'search' | 'ask';
-const VALID_TABS = new Set<TabMode>(['rollup', 'list', 'search', 'ask']);
+type TabMode = 'rollup' | 'list' | 'discover' | 'search' | 'ask';
+const VALID_TABS = new Set<TabMode>(['rollup', 'list', 'discover', 'search', 'ask']);
 
 type SortMode = 'default' | 'insider' | 'news' | 'cluster';
 const VALID_SORTS = new Set<SortMode>(['default', 'insider', 'news', 'cluster']);
 
 export default async function WatchlistPage({ searchParams }: PageProps) {
   const userId = await requireUserId();
-  const items = await getWatchlistWithSnapshots(userId);
 
   const tab: TabMode = (VALID_TABS.has(searchParams.tab as TabMode) ? searchParams.tab : 'rollup') as TabMode;
   const sort: SortMode = (VALID_SORTS.has(searchParams.sort as SortMode) ? searchParams.sort : 'default') as SortMode;
+
+  if (tab === 'discover') {
+    const qs = new URLSearchParams();
+    if (searchParams.q) qs.set('q', searchParams.q);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    redirect(`/watchlist/discover${suffix}`);
+  }
+
+  const items = await getWatchlistWithSnapshots(userId);
 
   if (items.length === 0) {
     return (
