@@ -370,28 +370,45 @@ def fetch_thirteen_f_filings(cik):
         acc_no_dashes = t["accession"].replace("-", "")
         archive_dir = f"https://www.sec.gov/Archives/edgar/data/{cik_unpadded}/{acc_no_dashes}/"
 
-        # Step 2: filing's index.json — find the InformationTable XML filename
+        # Step 2: filing's index.json — find the InformationTable XML filename.
+        # Filenames vary across filers: 'form13fInfoTable.xml' (BlackRock),
+        # '53405.xml' (Berkshire), 'informationtable.xml', etc. Heuristic:
+        # any .xml that isn't primary_doc.xml or an *-index*.xml manifest.
         idx_r = throttled_get(archive_dir + "index.json")
         if idx_r.status_code != 200:
             continue
         idx_json = idx_r.json()
         items = idx_json.get("directory", {}).get("item", [])
-        info_filename = None
+        candidate_xmls = []
         for item in items:
             name = item.get("name", "")
-            if "informationtable" in name.lower() and name.lower().endswith(".xml"):
-                info_filename = name
-                break
-        if not info_filename:
+            name_lower = name.lower()
+            if not name_lower.endswith(".xml"):
+                continue
+            if name_lower == "primary_doc.xml":
+                continue
+            if "-index" in name_lower:
+                continue
+            candidate_xmls.append(name)
+        if not candidate_xmls:
             continue
 
-        # Step 3: download + parse InformationTable XML
-        xml_r = throttled_get(archive_dir + info_filename)
-        if xml_r.status_code != 200:
-            continue
-        try:
-            positions = _parse_information_table(xml_r.content)
-        except Exception:
+        # Step 3: try each candidate; the InformationTable XML has root
+        # element <informationTable>. _parse_information_table returns []
+        # for non-matching XMLs, so we keep the one with positions.
+        positions = []
+        for candidate in candidate_xmls:
+            xml_r = throttled_get(archive_dir + candidate)
+            if xml_r.status_code != 200:
+                continue
+            try:
+                parsed = _parse_information_table(xml_r.content)
+            except Exception:
+                continue
+            if parsed:
+                positions = parsed
+                break
+        if not positions:
             continue
 
         filings.append({

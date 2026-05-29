@@ -40,6 +40,8 @@ SESSION.headers.update({"User-Agent": USER_AGENT, "Accept-Encoding": "gzip, defl
 MIN_INTERVAL_SECONDS = 0.21  # ~4.76 req/sec; well under SEC's 10/sec ceiling
 _last_request = 0.0
 
+THIRTEEN_F_FORMS = ('13F-HR', '13F-HR/A')
+
 
 def fail(msg: str, kind: str = "Unknown"):
     print(json.dumps({"error": msg, "kind": kind}))
@@ -382,9 +384,146 @@ def fetch_filing(primary_url: str, form_type: str) -> dict:
     }
 
 
+def _parse_information_table(xml_bytes):
+    """Parse a 13F-HR InformationTable XML into a list of position dicts.
+
+    SEC reports <value> in thousands of dollars — multiply by 1000 for
+    value_usd. Returns a list of position dicts; skips rows whose
+    required fields are missing or non-numeric.
+    """
+    soup = BeautifulSoup(xml_bytes, 'xml')
+    positions = []
+    for info in soup.find_all('infoTable'):
+        cusip_el = info.find('cusip')
+        value_el = info.find('value')
+        shares_el = info.find('sshPrnamt')
+        shares_type_el = info.find('sshPrnamtType')
+        name_el = info.find('nameOfIssuer')
+        class_el = info.find('titleOfClass')
+        if not (cusip_el and value_el and shares_el):
+            continue
+        try:
+            value_thousands = int(value_el.text.strip())
+            shares = int(shares_el.text.strip())
+        except (ValueError, AttributeError):
+            continue
+        positions.append({
+            'cusip': cusip_el.text.strip(),
+            'issuer_name': name_el.text.strip() if name_el else '',
+            'class_title': class_el.text.strip() if class_el else '',
+            'value_usd': value_thousands * 1000,
+            'shares': shares,
+            'shares_type': shares_type_el.text.strip() if shares_type_el else 'SH'
+        })
+    return positions
+
+
+def fetch_thirteen_f_filings(cik):
+    """Fetch the investor's submissions index, find recent 13F-HR filings
+    (up to 8), download each InformationTable XML via the SEC index.json
+    manifest, return parsed positions.
+
+    Returns (http_status, response_body_dict).
+    """
+    cik_padded = cik.zfill(10)
+    cik_unpadded = str(int(cik_padded))
+
+    # Step 1: investor submissions index
+    sub_url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+    r = throttled_get(sub_url)
+    if r.status_code == 404:
+        return 404, {"error": "investor not found", "kind": "thirteen_f_filings", "cik": cik_padded}
+    if r.status_code == 429:
+        return 503, {"error": "SEC rate limited", "kind": "RateLimit"}
+    if r.status_code >= 500:
+        return 503, {"error": f"SEC returned {r.status_code}", "kind": "Provider"}
+    if not r.ok:
+        return 500, {"error": f"SEC submissions index returned {r.status_code}", "kind": "thirteen_f_filings"}
+    sub_json = r.json()
+    investor_name = sub_json.get("name", "")
+
+    recent = sub_json.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accessions = recent.get("accessionNumber", [])
+    filing_dates = recent.get("filingDate", [])
+    report_dates = recent.get("reportDate", [])
+
+    targets = []
+    for form, acc, fdate, rdate in zip(forms, accessions, filing_dates, report_dates):
+        if form in THIRTEEN_F_FORMS:
+            targets.append({
+                "accession": acc,
+                "filing_date": fdate,
+                "report_period": rdate,
+                "form_type": form,
+            })
+            if len(targets) >= 8:
+                break
+
+    filings = []
+    for t in targets:
+        acc_no_dashes = t["accession"].replace("-", "")
+        archive_dir = f"https://www.sec.gov/Archives/edgar/data/{cik_unpadded}/{acc_no_dashes}/"
+
+        # Step 2: filing's index.json — find the InformationTable XML filename.
+        # Filenames vary across filers: 'form13fInfoTable.xml' (BlackRock),
+        # '53405.xml' (Berkshire), 'informationtable.xml', etc. Heuristic:
+        # any .xml that isn't primary_doc.xml or an *-index*.xml manifest.
+        idx_r = throttled_get(archive_dir + "index.json")
+        if idx_r.status_code != 200:
+            continue
+        idx_json = idx_r.json()
+        items = idx_json.get("directory", {}).get("item", [])
+        candidate_xmls = []
+        for item in items:
+            name = item.get("name", "")
+            name_lower = name.lower()
+            if not name_lower.endswith(".xml"):
+                continue
+            if name_lower == "primary_doc.xml":
+                continue
+            if "-index" in name_lower:
+                continue
+            candidate_xmls.append(name)
+        if not candidate_xmls:
+            continue
+
+        # Step 3: try each candidate; the InformationTable XML has root
+        # element <informationTable>. _parse_information_table returns []
+        # for non-matching XMLs, so we keep the one with positions.
+        positions = []
+        for candidate in candidate_xmls:
+            xml_r = throttled_get(archive_dir + candidate)
+            if xml_r.status_code != 200:
+                continue
+            try:
+                parsed = _parse_information_table(xml_r.content)
+            except Exception:
+                continue
+            if parsed:
+                positions = parsed
+                break
+        if not positions:
+            continue
+
+        filings.append({
+            "accession": t["accession"],
+            "filing_date": t["filing_date"],
+            "report_period": t["report_period"],
+            "form_type": t["form_type"],
+            "positions": positions,
+        })
+
+    return 200, {
+        "cik": cik_padded,
+        "investor_name": investor_name,
+        "filings": filings,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=["resolve_cik", "index", "filing"])
+    parser.add_argument("kind", choices=["resolve_cik", "index", "filing", "thirteen_f_filings"])
     parser.add_argument("--ticker")
     parser.add_argument("--cik")
     parser.add_argument("--accession")
@@ -411,6 +550,14 @@ def main():
                 fail("--primary-url and --form-type required", "Validation")
             result = fetch_filing(args.primary_url, args.form_type)
             print(json.dumps(result))
+        elif args.kind == "thirteen_f_filings":
+            if not args.cik:
+                fail("--cik required", "Validation")
+            status, body = fetch_thirteen_f_filings(args.cik)
+            if status != 200:
+                print(json.dumps(body))
+                sys.exit(1)
+            print(json.dumps(body))
     except SystemExit:
         raise
     except Exception as e:
