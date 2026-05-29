@@ -105,3 +105,77 @@ describe('buildSkeleton', () => {
     expect(skeleton.get('AAA')!.country).toBe('US');
   });
 });
+
+describe('enrichWithYfinance', () => {
+  it('calls yfinance .info for each skeleton ticker and fills metadata', async () => {
+    const { enrichWithYfinance } = await import('@/scripts/seed-universe');
+    const skeleton = new Map<string, any>([
+      ['AAA', { ticker: 'AAA', name: 'Alpha', exchange: 'NYSE', country: 'US', sector: null, industry: null, marketCap: null, sources: ['nyse'] }],
+      ['BBB', { ticker: 'BBB', name: 'Beta',  exchange: 'NYSE', country: null, sector: null, industry: null, marketCap: null, sources: ['nyse'] }]
+    ]);
+
+    const mockYf = {
+      info: vi.fn().mockImplementation(async (ticker: string) => {
+        if (ticker === 'AAA') return { longBusinessSummary: 'Alpha makes chips.', country: 'United States', sector: 'Technology', industry: 'Semiconductors', exchange: 'NMS', marketCap: 1_000_000_000, longName: 'Alpha Corporation' };
+        if (ticker === 'BBB') return { longBusinessSummary: 'Beta brews beer.', country: 'Brazil', sector: 'Consumer Defensive', industry: 'Beverages-Brewers', exchange: 'NYQ', marketCap: 500_000_000, longName: 'Beta Brewery' };
+        throw new Error('unknown');
+      })
+    };
+    const enriched = await enrichWithYfinance(skeleton, mockYf as any);
+    expect(enriched.get('AAA')!.description).toBe('Alpha makes chips.');
+    expect(enriched.get('AAA')!.sector).toBe('Technology');
+    expect(enriched.get('BBB')!.country).toBe('BR');
+    expect(enriched.get('BBB')!.marketCap).toBe('500000000');     // numeric column → string
+  });
+
+  it('skips entries whose yfinance call throws (delisted/malformed)', async () => {
+    const { enrichWithYfinance } = await import('@/scripts/seed-universe');
+    const skeleton = new Map<string, any>([
+      ['AAA', { ticker: 'AAA', name: 'Alpha', exchange: 'NYSE', country: null, sector: null, industry: null, marketCap: null, sources: ['nyse'] }],
+      ['ZZZ', { ticker: 'ZZZ', name: 'Delisted', exchange: 'NYSE', country: null, sector: null, industry: null, marketCap: null, sources: ['nyse'] }]
+    ]);
+    const mockYf = {
+      info: vi.fn().mockImplementation(async (ticker: string) => {
+        if (ticker === 'ZZZ') throw new Error('delisted');
+        return { longBusinessSummary: 'ok', country: 'United States', sector: 'Tech', industry: 'Soft', exchange: 'NMS', marketCap: 1, longName: 'Alpha' };
+      })
+    };
+    const enriched = await enrichWithYfinance(skeleton, mockYf as any);
+    expect(enriched.get('AAA')!.description).toBe('ok');
+    expect(enriched.get('ZZZ')!.description).toBeNull();
+  });
+});
+
+describe('batchEmbedDescriptions', () => {
+  it('batches in chunks of 25 (DashScope limit)', async () => {
+    const { batchEmbedDescriptions } = await import('@/scripts/seed-universe');
+    const enriched = new Map();
+    for (let i = 0; i < 60; i++) {
+      enriched.set(`T${i}`, { ticker: `T${i}`, name: `Co ${i}`, description: `desc ${i}`, country: 'US', sector: 'Tech', industry: 'Soft', exchange: 'NYSE', marketCap: '1', sources: ['nyse'] });
+    }
+    const mockEmb = {
+      embed: vi.fn().mockImplementation(async (req: any) => ({
+        vectors: req.texts.map(() => new Array(1024).fill(0.1)),
+        inputTokens: 10
+      }))
+    };
+    const withVecs = await batchEmbedDescriptions(enriched, mockEmb as any);
+    expect(mockEmb.embed).toHaveBeenCalledTimes(3);
+    expect(withVecs.get('T0')!.embedding).toHaveLength(1024);
+    expect(withVecs.get('T59')!.embedding).toHaveLength(1024);
+  });
+
+  it('skips rows with null description', async () => {
+    const { batchEmbedDescriptions } = await import('@/scripts/seed-universe');
+    const enriched = new Map<string, any>([
+      ['AAA', { ticker: 'AAA', name: 'A', description: 'has text',   country: null, sector: null, industry: null, exchange: null, marketCap: null, sources: [] }],
+      ['BBB', { ticker: 'BBB', name: 'B', description: null,         country: null, sector: null, industry: null, exchange: null, marketCap: null, sources: [] }]
+    ]);
+    const mockEmb = {
+      embed: vi.fn().mockResolvedValue({ vectors: [new Array(1024).fill(0.1)], inputTokens: 5 })
+    };
+    const withVecs = await batchEmbedDescriptions(enriched, mockEmb as any);
+    expect(withVecs.get('AAA')!.embedding).toHaveLength(1024);
+    expect(withVecs.get('BBB')!.embedding).toBeNull();
+  });
+});

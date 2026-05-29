@@ -11,6 +11,12 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
+import { sql as drizzleSql } from 'drizzle-orm';
+import { getServiceDb } from '@/lib/db/client';
+import { companiesUniverse } from '@/lib/db/schema';
+import { YFinanceProvider } from '@/lib/providers/yfinance';
+import { EmbeddingsProviderImpl } from '@/lib/providers/embeddings';
+
 // ----- Public types -----
 
 export interface SkeletonRow {
@@ -22,6 +28,30 @@ export interface SkeletonRow {
   industry: string | null;
   marketCap: string | null;
   sources: string[];
+}
+
+export interface EnrichedRow extends SkeletonRow {
+  description: string | null;
+}
+
+export interface EmbeddedRow extends EnrichedRow {
+  embedding: number[] | null;
+}
+
+interface YfInfoLike {
+  info(ticker: string): Promise<{
+    longBusinessSummary: string | null;
+    country: string | null;
+    sector: string | null;
+    industry: string | null;
+    exchange: string | null;
+    marketCap: number | null;
+    longName: string | null;
+  }>;
+}
+
+interface EmbProviderLike {
+  embed(req: { model: string; texts: string[] }): Promise<{ vectors: number[][]; inputTokens: number }>;
 }
 
 interface RawRow {
@@ -221,6 +251,119 @@ export function mergeSources(rows: RawRow[]): Map<string, SkeletonRow> {
   return merged;
 }
 
+// ----- Phase 2: yfinance enrichment -----
+
+export async function enrichWithYfinance(
+  skeleton: Map<string, SkeletonRow>,
+  yf: YfInfoLike,
+  onProgress?: (done: number, total: number) => void
+): Promise<Map<string, EnrichedRow>> {
+  const out = new Map<string, EnrichedRow>();
+  let done = 0;
+  for (const [ticker, row] of skeleton) {
+    let info: Awaited<ReturnType<YfInfoLike['info']>> | null = null;
+    try {
+      info = await yf.info(ticker);
+    } catch {
+      // delisted/malformed — fall through with skeleton-only row
+    }
+    out.set(ticker, {
+      ...row,
+      name: info?.longName ?? row.name,
+      description: info?.longBusinessSummary ?? null,
+      country: normalizeCountry(info?.country ?? null) ?? row.country,
+      sector: info?.sector ?? row.sector,
+      industry: info?.industry ?? row.industry,
+      exchange: info?.exchange ?? row.exchange,
+      marketCap: info?.marketCap != null ? String(info.marketCap) : row.marketCap
+    });
+    done++;
+    if (onProgress && done % 100 === 0) onProgress(done, skeleton.size);
+  }
+  return out;
+}
+
+// ----- Phase 3: batch embed descriptions -----
+
+const EMBED_BATCH = 25;
+
+export async function batchEmbedDescriptions(
+  enriched: Map<string, EnrichedRow>,
+  emb: EmbProviderLike,
+  onProgress?: (done: number, total: number) => void
+): Promise<Map<string, EmbeddedRow>> {
+  const withEmbeddable = Array.from(enriched.entries()).filter(([, r]) => r.description && r.description.trim().length > 0);
+  const out = new Map<string, EmbeddedRow>();
+  for (const [t, r] of enriched) {
+    if (!r.description || !r.description.trim()) out.set(t, { ...r, embedding: null });
+  }
+  for (let i = 0; i < withEmbeddable.length; i += EMBED_BATCH) {
+    const batch = withEmbeddable.slice(i, i + EMBED_BATCH);
+    const result = await emb.embed({
+      model: 'text-embedding-v4',
+      texts: batch.map(([, r]) => r.description!)
+    });
+    for (let j = 0; j < batch.length; j++) {
+      const [ticker, row] = batch[j]!;
+      const vec = result.vectors[j];
+      out.set(ticker, { ...row, embedding: vec ?? null });
+    }
+    if (onProgress) onProgress(Math.min(i + EMBED_BATCH, withEmbeddable.length), withEmbeddable.length);
+  }
+  return out;
+}
+
+// ----- Phase 4: upsert into companies_universe -----
+
+export async function upsertUniverse(
+  embedded: Map<string, EmbeddedRow>
+): Promise<{ inserted: number; skipped: number }> {
+  const db = getServiceDb();
+  let inserted = 0;
+  let skipped = 0;
+  const allRows = Array.from(embedded.values());
+
+  const CHUNK = 100;
+  for (let i = 0; i < allRows.length; i += CHUNK) {
+    const chunk = allRows.slice(i, i + CHUNK);
+    const values = chunk.map((r) => ({
+      ticker: r.ticker,
+      name: r.name,
+      exchange: r.exchange,
+      country: r.country,
+      sector: r.sector,
+      industry: r.industry,
+      description: r.description,
+      descriptionEmbedding: r.embedding,
+      marketCap: r.marketCap,
+      sources: r.sources,
+      lastRefreshedAt: new Date()
+    }));
+    try {
+      await db.insert(companiesUniverse).values(values).onConflictDoUpdate({
+        target: companiesUniverse.ticker,
+        set: {
+          name: drizzleSql`excluded.name`,
+          exchange: drizzleSql`excluded.exchange`,
+          country: drizzleSql`excluded.country`,
+          sector: drizzleSql`excluded.sector`,
+          industry: drizzleSql`excluded.industry`,
+          description: drizzleSql`excluded.description`,
+          descriptionEmbedding: drizzleSql`excluded.description_embedding`,
+          marketCap: drizzleSql`excluded.market_cap`,
+          sources: drizzleSql`excluded.sources`,
+          lastRefreshedAt: drizzleSql`excluded.last_refreshed_at`
+        }
+      });
+      inserted += chunk.length;
+    } catch (err) {
+      console.warn(`  upsert chunk ${i / CHUNK} failed: ${String(err)}`);
+      skipped += chunk.length;
+    }
+  }
+  return { inserted, skipped };
+}
+
 // ----- Orchestrator -----
 
 export async function buildSkeleton(opts: BuildOptions = {}): Promise<Map<string, SkeletonRow>> {
@@ -262,15 +405,29 @@ export async function buildSkeleton(opts: BuildOptions = {}): Promise<Map<string
 async function main() {
   console.log('Phase 1: building skeleton from public sources...');
   const skeleton = await buildSkeleton();
-  console.log(`\nMerged skeleton: ${skeleton.size} unique tickers`);
-  let nyseCount = 0, nasdaqCount = 0, etfOnly = 0;
-  for (const row of skeleton.values()) {
-    if (row.sources.includes('nyse')) nyseCount++;
-    if (row.sources.includes('nasdaq')) nasdaqCount++;
-    if (!row.sources.includes('nyse') && !row.sources.includes('nasdaq')) etfOnly++;
-  }
-  console.log(`  NYSE: ${nyseCount}, NASDAQ: ${nasdaqCount}, ETF-only: ${etfOnly}`);
-  console.log('\n(Phase 2-4 land in Task 9)');
+  console.log(`  → ${skeleton.size} unique tickers`);
+
+  console.log('\nPhase 2: enriching with yfinance .info() (rate-limited)...');
+  const yf = new YFinanceProvider();
+  const enriched = await enrichWithYfinance(skeleton, yf as any, (done, total) => {
+    console.log(`  yfinance progress: ${done}/${total}`);
+  });
+  const enrichedDescCount = Array.from(enriched.values()).filter((r) => r.description).length;
+  console.log(`  → ${enrichedDescCount}/${enriched.size} have descriptions`);
+
+  console.log('\nPhase 3: batch-embedding descriptions (Qwen text-embedding-v4)...');
+  const emb = new EmbeddingsProviderImpl();
+  const embedded = await batchEmbedDescriptions(enriched, emb as any, (done, total) => {
+    console.log(`  embed progress: ${done}/${total}`);
+  });
+  const embeddedCount = Array.from(embedded.values()).filter((r) => r.embedding).length;
+  console.log(`  → ${embeddedCount} embedded`);
+
+  console.log('\nPhase 4: upserting into companies_universe...');
+  const { inserted, skipped } = await upsertUniverse(embedded);
+  console.log(`  → upserted ${inserted}, skipped ${skipped}`);
+
+  console.log('\nDone.');
   process.exit(0);
 }
 
