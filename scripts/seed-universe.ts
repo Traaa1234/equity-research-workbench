@@ -364,6 +364,71 @@ export async function upsertUniverse(
   return { inserted, skipped };
 }
 
+// ----- Chunked orchestrator (enrich → embed → upsert per chunk) -----
+
+const CHUNK_SIZE = 100;
+
+export interface ChunkedProgress {
+  chunksDone: number;
+  chunksTotal: number;
+  totalProcessed: number;
+  totalSucceeded: number;       // count with non-null description
+  totalEmbedded: number;
+  totalUpserted: number;
+}
+
+/**
+ * Process the skeleton in 100-ticker chunks: enrich → embed → upsert → repeat.
+ * Discover queries start returning results once the first chunk lands, instead
+ * of waiting for the whole 6500-ticker crawl to finish.
+ */
+export async function enrichEmbedUpsertChunked(
+  skeleton: Map<string, SkeletonRow>,
+  yf: YfInfoLike,
+  emb: EmbProviderLike,
+  onProgress?: (p: ChunkedProgress) => void
+): Promise<ChunkedProgress> {
+  const tickers = Array.from(skeleton.keys());
+  const totals: ChunkedProgress = {
+    chunksDone: 0,
+    chunksTotal: Math.ceil(tickers.length / CHUNK_SIZE),
+    totalProcessed: 0,
+    totalSucceeded: 0,
+    totalEmbedded: 0,
+    totalUpserted: 0
+  };
+
+  for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
+    const chunkTickers = tickers.slice(i, i + CHUNK_SIZE);
+    const chunkSkeleton = new Map<string, SkeletonRow>();
+    for (const t of chunkTickers) {
+      const row = skeleton.get(t);
+      if (row) chunkSkeleton.set(t, row);
+    }
+
+    // Enrich this chunk
+    const enriched = await enrichWithYfinance(chunkSkeleton, yf);
+    const descCount = Array.from(enriched.values()).filter((r) => r.description).length;
+
+    // Embed this chunk
+    const embedded = await batchEmbedDescriptions(enriched, emb);
+    const embCount = Array.from(embedded.values()).filter((r) => r.embedding).length;
+
+    // Upsert this chunk
+    const { inserted } = await upsertUniverse(embedded);
+
+    totals.chunksDone++;
+    totals.totalProcessed += chunkTickers.length;
+    totals.totalSucceeded += descCount;
+    totals.totalEmbedded += embCount;
+    totals.totalUpserted += inserted;
+
+    if (onProgress) onProgress({ ...totals });
+  }
+
+  return totals;
+}
+
 // ----- Orchestrator -----
 
 export async function buildSkeleton(opts: BuildOptions = {}): Promise<Map<string, SkeletonRow>> {
@@ -407,27 +472,27 @@ async function main() {
   const skeleton = await buildSkeleton();
   console.log(`  → ${skeleton.size} unique tickers`);
 
-  console.log('\nPhase 2: enriching with yfinance .info() (rate-limited)...');
+  console.log('\nPhases 2-4 (chunked): enrich → embed → upsert in batches of 100...');
+  console.log('  → discover queries become available as chunks land');
+
   const yf = new YFinanceProvider();
-  const enriched = await enrichWithYfinance(skeleton, yf as any, (done, total) => {
-    console.log(`  yfinance progress: ${done}/${total}`);
-  });
-  const enrichedDescCount = Array.from(enriched.values()).filter((r) => r.description).length;
-  console.log(`  → ${enrichedDescCount}/${enriched.size} have descriptions`);
-
-  console.log('\nPhase 3: batch-embedding descriptions (Qwen text-embedding-v4)...');
   const emb = new EmbeddingsProviderImpl();
-  const embedded = await batchEmbedDescriptions(enriched, emb as any, (done, total) => {
-    console.log(`  embed progress: ${done}/${total}`);
+  const t0 = Date.now();
+  const totals = await enrichEmbedUpsertChunked(skeleton, yf as any, emb as any, (p) => {
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
+    const pctDone = ((p.chunksDone / p.chunksTotal) * 100).toFixed(0);
+    console.log(
+      `  [${pctDone}%] chunk ${p.chunksDone}/${p.chunksTotal} | ` +
+      `processed=${p.totalProcessed} desc=${p.totalSucceeded} embedded=${p.totalEmbedded} upserted=${p.totalUpserted} | ` +
+      `${elapsed}s elapsed`
+    );
   });
-  const embeddedCount = Array.from(embedded.values()).filter((r) => r.embedding).length;
-  console.log(`  → ${embeddedCount} embedded`);
-
-  console.log('\nPhase 4: upserting into companies_universe...');
-  const { inserted, skipped } = await upsertUniverse(embedded);
-  console.log(`  → upserted ${inserted}, skipped ${skipped}`);
 
   console.log('\nDone.');
+  console.log(`  processed: ${totals.totalProcessed}`);
+  console.log(`  with description: ${totals.totalSucceeded}`);
+  console.log(`  embedded: ${totals.totalEmbedded}`);
+  console.log(`  upserted: ${totals.totalUpserted}`);
   process.exit(0);
 }
 
