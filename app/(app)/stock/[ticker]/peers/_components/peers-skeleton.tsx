@@ -9,8 +9,9 @@ export function PeersSkeleton({ count = 6 }: Props = {}) {
       <div className="hidden sm:block">
         {Array.from({ length: count }).map((_, i) => (
           <div key={i} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-border">
+            <div className="col-span-1 h-4 bg-muted rounded" />
             <div className="col-span-2 h-4 bg-muted rounded" />
-            <div className="col-span-2 h-4 bg-muted rounded" />
+            <div className="col-span-1 h-4 bg-muted rounded" />
             <div className="col-span-1 h-4 bg-muted rounded" />
             <div className="col-span-1 h-4 bg-muted rounded" />
             <div className="col-span-1 h-4 bg-muted rounded" />

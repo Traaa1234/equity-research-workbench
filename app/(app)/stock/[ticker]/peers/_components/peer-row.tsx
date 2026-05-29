@@ -10,13 +10,14 @@ interface Props {
 }
 
 export function PeerRow({ row, allRows, emphasis = 'peer' }: Props) {
-  const marketCaps = allRows.map((r) => r.marketCap);
-  const pes        = allRows.map((r) => r.pe);
-  const evEbitdas  = allRows.map((r) => r.evEbitda);
-  const revGrowths = allRows.map((r) => r.revGrowthYoy);
-  const grossMargs = allRows.map((r) => r.grossMargin);
-  const roes       = allRows.map((r) => r.roe);
-  const fScores    = allRows.map((r) => r.fScore);
+  const marketCaps   = allRows.map((r) => r.marketCap);
+  const pes          = allRows.map((r) => r.pe);
+  const evEbitdas    = allRows.map((r) => r.evEbitda);
+  const revGrowths   = allRows.map((r) => r.revGrowthYoy);
+  const grossMargs   = allRows.map((r) => r.grossMargin);
+  const roes         = allRows.map((r) => r.roe);
+  const fScores      = allRows.map((r) => r.fScore);
+  const similarities = allRows.map((r) => r.similarity);
 
   return (
     <li
@@ -27,7 +28,7 @@ export function PeerRow({ row, allRows, emphasis = 'peer' }: Props) {
     >
       <Link
         href={`/stock/${row.ticker}`}
-        className="col-span-2 font-mono font-medium tabular-nums hover:text-primary"
+        className="col-span-1 font-mono font-medium tabular-nums hover:text-primary"
       >
         {row.ticker}
       </Link>
@@ -54,6 +55,9 @@ export function PeerRow({ row, allRows, emphasis = 'peer' }: Props) {
       </div>
       <div className="col-span-1 text-right">
         <PeerCell value={row.fScore} allValues={fScores} direction="higher-is-better" format="integer" />
+      </div>
+      <div className="col-span-1 text-right">
+        <PeerCell value={row.similarity} allValues={similarities} direction="higher-is-better" format="similarity" />
       </div>
     </li>
   );

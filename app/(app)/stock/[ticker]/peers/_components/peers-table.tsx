@@ -47,7 +47,7 @@ export function PeersTable({ result }: Props) {
     <div className="space-y-4">
       <div className="hidden sm:block rounded border border-border overflow-hidden">
         <div role="row" className="grid grid-cols-12 gap-3 px-3 py-2 bg-muted text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <div className="col-span-2">Ticker</div>
+          <div className="col-span-1">Ticker</div>
           <div className="col-span-2">Name</div>
           <div className="col-span-1">Country</div>
           <div className="col-span-1 text-right">Mkt Cap</div>
@@ -57,6 +57,7 @@ export function PeersTable({ result }: Props) {
           <div className="col-span-1 text-right">Gross %</div>
           <div className="col-span-1 text-right">ROE</div>
           <div className="col-span-1 text-right">F-Score</div>
+          <div className="col-span-1 text-right">Sim %</div>
         </div>
         <ul aria-label="Peer companies">
           <PeerRow row={result.target} allRows={allRows} emphasis="target" />
