@@ -497,6 +497,31 @@ async function main() {
   const skeleton = await buildSkeleton();
   console.log(`  → ${skeleton.size} unique tickers`);
 
+  // Resume: drop tickers that already landed with description + embedding
+  // from a previous run. Re-attempt anything that's missing either field
+  // (e.g., yfinance returned no description, or embedding batch failed).
+  console.log('\nResume check: skipping tickers already fully populated...');
+  const db = getServiceDb();
+  const populated = await db.execute(drizzleSql`
+    SELECT ticker
+    FROM companies_universe
+    WHERE description IS NOT NULL
+      AND description_embedding IS NOT NULL
+  `);
+  const done = new Set(
+    (populated as unknown as Array<{ ticker: string }>).map((r) => r.ticker)
+  );
+  let skipped = 0;
+  for (const t of done) {
+    if (skeleton.delete(t)) skipped++;
+  }
+  console.log(`  → skipping ${skipped} already-populated; ${skeleton.size} remain to process`);
+
+  if (skeleton.size === 0) {
+    console.log('\nNothing to do. Universe is fully populated.');
+    process.exit(0);
+  }
+
   console.log('\nPhases 2-4 (chunked): enrich → embed → upsert in batches of 100...');
   console.log('  → discover queries become available as chunks land');
 
