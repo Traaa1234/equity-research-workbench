@@ -10,6 +10,7 @@ export type DashboardTab =
   | 'holdings'
   | 'filings'
   | 'quality'
+  | 'peers'
   | 'ask';
 
 interface Props {
@@ -26,6 +27,7 @@ const TABS: Array<{ value: DashboardTab; label: string; href: (t: string) => str
   { value: 'holdings',   label: 'Holdings',   href: (t) => `/stock/${t}/holdings` },
   { value: 'filings',    label: 'Filings',    href: (t) => `/stock/${t}/filings` },
   { value: 'quality',    label: 'Quality',    href: (t) => `/stock/${t}/quality` },
+  { value: 'peers',      label: 'Peers',      href: (t) => `/stock/${t}/peers` },
   { value: 'ask',        label: 'Ask',        href: (t) => `/stock/${t}/ask` }
 ];
 
