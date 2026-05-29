@@ -116,7 +116,8 @@ describe('GET /api/tickers/[symbol]/peers', () => {
   });
 
   it('returns 401 when not authenticated', async () => {
-    vi.mocked(requireUserId).mockRejectedValueOnce(new Error('no auth'));
+    const { UnauthorizedError } = await import('@/lib/auth/current-user');
+    vi.mocked(requireUserId).mockRejectedValueOnce(new UnauthorizedError());
     const req = new Request('http://localhost/api/tickers/TGT/peers');
     const res = await GET(req, { params: { symbol: 'TGT' } });
     expect(res.status).toBe(401);

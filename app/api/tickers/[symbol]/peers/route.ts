@@ -18,13 +18,21 @@ interface RouteContext {
   params: { symbol: string };
 }
 
+let svc: PeersService | null = null;
+function service(): PeersService {
+  if (svc) return svc;
+  const env = loadServerEnv();
+  const db = getServiceDb();
+  const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
+  const yf = new YFinanceProvider();
+  const redis = getRedisCache();
+  svc = new PeersService({ db, primary: yf, fallback: fd, redis });
+  return svc;
+}
+
 export async function GET(req: Request, ctx: RouteContext) {
   try {
-    try {
-      await requireUserId();
-    } catch {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    await requireUserId();
 
     const symbol = ctx.params.symbol.toUpperCase();
     if (!TICKER_RE.test(symbol)) {
@@ -38,19 +46,12 @@ export async function GET(req: Request, ctx: RouteContext) {
       throw new ValidationError(`k must be an integer in [${MIN_K}, ${MAX_K}]`);
     }
 
-    const env = loadServerEnv();
-    const db = getServiceDb();
-    const fd = new FinancialDatasetsProvider({ apiKey: env.FINANCIAL_DATASETS_API_KEY });
-    const yf = new YFinanceProvider();
-    const redis = getRedisCache();
-
-    const svc = new PeersService({ db, primary: yf, fallback: fd, redis });
-    const result = await svc.getPeers(symbol, k);
+    const result = await service().getPeers(symbol, k);
 
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'private, max-age=300' }
     });
   } catch (err) {
-    return errorResponse(err, { route: 'tickers/peers' });
+    return errorResponse(err, { route: 'tickers/[symbol]/peers' });
   }
 }
