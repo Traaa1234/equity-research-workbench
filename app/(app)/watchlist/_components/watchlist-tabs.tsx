@@ -4,8 +4,10 @@
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+export type WatchlistTab = 'rollup' | 'list' | 'search' | 'ask';
+
 interface Props {
-  active: 'search' | 'ask';
+  active: WatchlistTab;
 }
 
 export function WatchlistTabs({ active }: Props) {
@@ -13,19 +15,32 @@ export function WatchlistTabs({ active }: Props) {
   const params = useSearchParams();
   const pathname = usePathname();
 
-  function setMode(mode: 'search' | 'ask') {
+  function setTab(tab: WatchlistTab) {
     const sp = new URLSearchParams(params.toString());
-    if (mode === 'search') sp.delete('mode');
-    else sp.set('mode', 'ask');
-    // Clear query when switching tabs to avoid running the wrong search
+    // Reset cross-tab state when switching to avoid stale params bleeding
+    // between tabs (e.g. ?q= from Search showing up under Roll-up).
     sp.delete('q');
+    sp.delete('mode');
+    sp.delete('sort');
+
+    if (tab === 'rollup') {
+      sp.set('tab', 'rollup');
+    } else if (tab === 'list') {
+      sp.set('tab', 'list');
+    } else if (tab === 'search') {
+      sp.set('tab', 'search');
+    } else {
+      sp.set('tab', 'ask');
+    }
     const next = sp.toString();
     router.push(next ? `${pathname}?${next}` : pathname);
   }
 
   return (
-    <Tabs value={active} onValueChange={(v) => setMode(v as 'search' | 'ask')}>
+    <Tabs value={active} onValueChange={(v) => setTab(v as WatchlistTab)}>
       <TabsList>
+        <TabsTrigger value="rollup">Roll-up</TabsTrigger>
+        <TabsTrigger value="list">List</TabsTrigger>
         <TabsTrigger value="search">Search</TabsTrigger>
         <TabsTrigger value="ask">Ask</TabsTrigger>
       </TabsList>

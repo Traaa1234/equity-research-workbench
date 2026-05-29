@@ -15,6 +15,7 @@ import { SearchBar } from './_components/search-bar';
 import { SearchResults } from './_components/search-results';
 import { SearchSkeleton } from './_components/search-skeleton';
 import { WatchlistTabs } from './_components/watchlist-tabs';
+import { WatchlistTable } from './_components/watchlist-table';
 import { AskPanel } from '@/app/(app)/_components/ask-panel';
 
 async function getWatchlistWithSnapshots(userId: string) {
@@ -39,18 +40,27 @@ async function getWatchlistWithSnapshots(userId: string) {
 }
 
 interface PageProps {
-  searchParams: { q?: string; mode?: string };
+  searchParams: { q?: string; mode?: string; tab?: string; sort?: string };
 }
+
+type TabMode = 'rollup' | 'list' | 'search' | 'ask';
+const VALID_TABS = new Set<TabMode>(['rollup', 'list', 'search', 'ask']);
+
+type SortMode = 'default' | 'insider' | 'news' | 'cluster';
+const VALID_SORTS = new Set<SortMode>(['default', 'insider', 'news', 'cluster']);
 
 export default async function WatchlistPage({ searchParams }: PageProps) {
   const userId = await requireUserId();
   const items = await getWatchlistWithSnapshots(userId);
 
+  const tab: TabMode = (VALID_TABS.has(searchParams.tab as TabMode) ? searchParams.tab : 'rollup') as TabMode;
+  const sort: SortMode = (VALID_SORTS.has(searchParams.sort as SortMode) ? searchParams.sort : 'default') as SortMode;
+
   if (items.length === 0) {
     return (
       <>
         <div className="space-y-4 mb-6">
-          <WatchlistTabs active={searchParams.mode === 'ask' ? 'ask' : 'search'} />
+          <WatchlistTabs active={tab} />
 
           {searchParams.mode === 'ask' ? (
             <AskPanel
@@ -82,6 +92,18 @@ export default async function WatchlistPage({ searchParams }: PageProps) {
     );
   }
 
+  if (tab === 'rollup') {
+    return (
+      <div className="space-y-4">
+        <header className="flex items-baseline justify-between">
+          <h1 className="text-2xl font-bold tracking-tight">Watchlist</h1>
+          <WatchlistTabs active="rollup" />
+        </header>
+        <WatchlistTable tickers={items.map((i) => i.ticker)} sort={sort} />
+      </div>
+    );
+  }
+
   return (
     <>
       <section>
@@ -90,7 +112,7 @@ export default async function WatchlistPage({ searchParams }: PageProps) {
           <p className="text-sm text-muted-foreground">{items.length} ticker{items.length === 1 ? '' : 's'}</p>
         </header>
         <div className="space-y-4 mb-6">
-          <WatchlistTabs active={searchParams.mode === 'ask' ? 'ask' : 'search'} />
+          <WatchlistTabs active={tab} />
 
           {searchParams.mode === 'ask' ? (
             <AskPanel
