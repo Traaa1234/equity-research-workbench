@@ -147,7 +147,7 @@ describe('enrichWithYfinance', () => {
 });
 
 describe('batchEmbedDescriptions', () => {
-  it('batches in chunks of 25 (DashScope limit)', async () => {
+  it('batches in chunks of 10 (DashScope limit — docs say 25 but live API caps at 10)', async () => {
     const { batchEmbedDescriptions } = await import('@/scripts/seed-universe');
     const enriched = new Map();
     for (let i = 0; i < 60; i++) {
@@ -160,7 +160,8 @@ describe('batchEmbedDescriptions', () => {
       }))
     };
     const withVecs = await batchEmbedDescriptions(enriched, mockEmb as any);
-    expect(mockEmb.embed).toHaveBeenCalledTimes(3);
+    // 60 rows / 10 per batch = 6 calls
+    expect(mockEmb.embed).toHaveBeenCalledTimes(6);
     expect(withVecs.get('T0')!.embedding).toHaveLength(1024);
     expect(withVecs.get('T59')!.embedding).toHaveLength(1024);
   });

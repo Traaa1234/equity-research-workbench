@@ -71,21 +71,23 @@ interface BuildOptions {
 }
 
 // ----- Curated ETF list -----
-
-export const DEFAULT_ETFS = [
-  { id: 'BOTZ', issuer: 'ishares' as const, url: 'https://www.ishares.com/us/products/239738/ishares-robotics-and-artificial-intelligence-multisector-etf/1467271812596.ajax?fileType=csv&fileName=BOTZ_holdings&dataType=fund' },
-  { id: 'KWEB', issuer: 'ishares' as const, url: 'https://www.ishares.com/us/products/271281/kraneshares-csi-china-internet-etf/1467271812596.ajax?fileType=csv&fileName=KWEB_holdings&dataType=fund' },
-  { id: 'EWZ',  issuer: 'ishares' as const, url: 'https://www.ishares.com/us/products/239630/ishares-msci-brazil-etf/1467271812596.ajax?fileType=csv&fileName=EWZ_holdings&dataType=fund' },
-  { id: 'ARKK', issuer: 'ark' as const,     url: 'https://ark-funds.com/wp-content/uploads/funds-etf-csv/ARK_INNOVATION_ETF_ARKK_HOLDINGS.csv' },
-  { id: 'ARKQ', issuer: 'ark' as const,     url: 'https://ark-funds.com/wp-content/uploads/funds-etf-csv/ARK_AUTONOMOUS_TECHNOLOGY_&_ROBOTICS_ETF_ARKQ_HOLDINGS.csv' },
-  { id: 'ARKW', issuer: 'ark' as const,     url: 'https://ark-funds.com/wp-content/uploads/funds-etf-csv/ARK_NEXT_GENERATION_INTERNET_ETF_ARKW_HOLDINGS.csv' },
-  { id: 'ARKG', issuer: 'ark' as const,     url: 'https://ark-funds.com/wp-content/uploads/funds-etf-csv/ARK_GENOMIC_REVOLUTION_ETF_ARKG_HOLDINGS.csv' },
-  { id: 'SOXX', issuer: 'ishares' as const, url: 'https://www.ishares.com/us/products/239705/ishares-phlx-semiconductor-etf/1467271812596.ajax?fileType=csv&fileName=SOXX_holdings&dataType=fund' },
-  { id: 'SMH',  issuer: 'vaneck' as const,  url: 'https://www.vaneck.com/etf/equity/smh/holdings/' },
-  { id: 'XLK',  issuer: 'sectorspdr' as const, url: 'https://www.sectorspdrs.com/sectorspdr/IDCO.Client.Spdrs.Holdings/Export/ExcelExport?symbol=XLK' },
-  { id: 'XBI',  issuer: 'sectorspdr' as const, url: 'https://www.sectorspdrs.com/sectorspdr/IDCO.Client.Spdrs.Holdings/Export/ExcelExport?symbol=XBI' },
-  { id: 'ITA',  issuer: 'ishares' as const, url: 'https://www.ishares.com/us/products/239502/ishares-us-aerospace-defense-etf/1467271812596.ajax?fileType=csv&fileName=ITA_holdings&dataType=fund' }
-];
+//
+// Intentionally empty. The original list (BOTZ/KWEB/EWZ/ARKK/etc.) bit-rotted:
+//   • iShares now serves an HTML landing page from the .ajax CSV endpoint
+//     (bot-detection / Cloudflare-style gate) — parser correctly finds no
+//     header and returns 0 rows.
+//   • ARK Invest moved their downloads off /wp-content/uploads/funds-etf-csv/
+//     entirely — the WordPress paths 404 even after the www-subdomain redirect.
+//
+// Coverage isn't materially affected: the NYSE+NASDAQ Nasdaq screener already
+// pulls every major ADR (BABA/JD/PBR/VALE/ITUB/etc. are NYSE/NASDAQ-listed),
+// so the ETF backstop was only catching long-tail names anyway.
+//
+// The fetchers, parsers, and `etfs` BuildOptions field stay in place so
+// tests can still inject ETF fixtures, and a future fix can re-enable
+// specific ETFs once a stable source is found (e.g. arkfunds.io or
+// data.ishares.com/v1/funds JSON endpoints).
+export const DEFAULT_ETFS: Array<{ id: string; issuer: 'ishares' | 'ark' | 'sectorspdr' | 'vaneck' | 'unknown'; url: string }> = [];
 
 // ----- Country name normalization -----
 
