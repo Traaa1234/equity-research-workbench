@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import type { ServiceDb } from '@/lib/db/client';
 import { journalPositions, journalEntries } from '@/lib/db/schema';
 import { validateNewPosition, validateNewEntry } from '@/lib/compute/journal-validation';
