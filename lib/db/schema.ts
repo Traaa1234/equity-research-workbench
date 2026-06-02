@@ -396,3 +396,49 @@ export const companiesUniverse = pgTable(
     sectorIdx: index('cu_sector_idx').on(t.sector)
   })
 );
+
+export const transcripts = pgTable(
+  'transcripts',
+  {
+    id: text('id').primaryKey(),                          // synth: "<TICKER>-<YYYY>-Q<Q>", e.g. "AAPL-2024-Q3"
+    ticker: text('ticker').notNull().references(() => companies.ticker, { onDelete: 'cascade' }),
+    fiscalYear: integer('fiscal_year').notNull(),
+    fiscalQuarter: integer('fiscal_quarter').notNull(),   // 1..4
+    callDate: date('call_date').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    parsedAt: timestamp('parsed_at', { withTimezone: true })
+  },
+  (t) => ({
+    tickerDateIdx: index('transcripts_ticker_date_idx').on(t.ticker, t.callDate)
+  })
+);
+
+export const transcriptChunks = pgTable(
+  'transcript_chunks',
+  {
+    transcriptId: text('transcript_id')
+      .notNull()
+      .references(() => transcripts.id, { onDelete: 'cascade' }),
+    sectionIndex: integer('section_index').notNull(),     // 0..N sequential
+    sectionKind: text('section_kind').notNull(),          // 'prepared' | 'qa'
+    speaker: text('speaker').notNull(),
+    role: text('role'),                                   // nullable
+    text: text('text').notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }).notNull().defaultNow(),
+    model: text('model').notNull()
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.transcriptId, t.sectionIndex] }),
+    transcriptIdx: index('transcript_chunks_transcript_idx').on(t.transcriptId),
+    embeddingIdx: index('transcript_chunks_embedding_hnsw_idx')
+      .using('hnsw', t.embedding.op('vector_cosine_ops'))
+  })
+);
+
+export const transcriptFreshness = pgTable('transcript_freshness', {
+  ticker: text('ticker').primaryKey().references(() => companies.ticker, { onDelete: 'cascade' }),
+  lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUrlSeen: text('last_url_seen')
+});

@@ -237,3 +237,25 @@ export interface InsiderTradeMeta {
   security_title: string | null;
   filing_date: string;
 }
+
+// ---- Earnings transcripts ----
+
+export interface TranscriptListItem {
+  id: string;                          // "AAPL-2024-Q3"
+  ticker: string;
+  fiscalYear: number;
+  fiscalQuarter: number;
+  callDate: string;                    // YYYY-MM-DD
+  sourceUrl: string;
+}
+
+export interface TranscriptSection {
+  kind: 'prepared' | 'qa';
+  speaker: string;
+  role: string | null;
+  text: string;
+}
+
+export interface TranscriptDocument extends TranscriptListItem {
+  sections: TranscriptSection[];
+}
