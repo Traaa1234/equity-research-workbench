@@ -2,6 +2,21 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ## ⚠️ REVISION 2026-06-02 — source changed to EarningsCall API (Level 1 free)
+>
+> See the revision box atop the design spec. Net effect on this plan:
+>
+> - **T1 (schema) + T2 (RLS): DONE** — already built and migrated to both Neon branches (commits `6d00c4c`, `63910df`). Source-agnostic; no change.
+> - **T3 (Python provider): REPLACED.** Build `scripts/earningscall_fetch.py` (kinds `list <TICKER> <k>` and `fetch <TICKER> <year> <quarter>`) + Vercel wrapper `api/fallback/earningscall.py`, wrapping the `earningscall` PyPI library. Reads `EARNINGSCALL_API_KEY`. NO HTML scraping, NO BeautifulSoup. Demo mode (no key) covers AAPL/MSFT for tests. Returns `{items:[{year,quarter,callDate}]}` / `{text:"…"}`.
+> - **T4 (TranscriptsProvider TS wrapper): same interface, new subprocess.** `list()`/`fetch()` signatures unchanged; `fetch()` returns `sections: [{ kind:'body', speaker:'', role:null, text:<full> }]` (single section in Level-1 mode). **Widen `TranscriptSection['kind']` in `lib/providers/types.ts` from `'prepared' | 'qa'` to `'prepared' | 'qa' | 'body'`** (one-line type change; the DB `section_kind` column is free text so no migration). Spawn-injection unit tests as before.
+> - **T5 (TranscriptsService): chunk the blob.** Instead of one-chunk-per-speaker-turn, reuse the existing `subChunk()` helper (Slice 2C) to split the full text into fixed windows; each window → one `transcript_chunks` row with `section_index`, `section_kind:'body'`, `speaker:''`, `role:null`. Freshness/idempotency logic unchanged.
+> - **T6 (SearchService sourceScope), T7 (API routes + RAG passthrough), T10 (smoke/E2E/push): carry over unchanged** (the smoke script is the already-written `scripts/try-earningscall.py` flow).
+> - **T8/T9 (UI): reader simplified.** Single-transcript reader renders scrollable paragraphs, NOT a speaker-turn rail; drop the Prepared/Q&A section nav. List page, tab nav, empty/skeleton unchanged. Ask citations show `🎙 Q{q} {year} call ({TICKER})` (no speaker name until Level 2).
+> - **Prerequisite:** run `scripts/try-earningscall.py` with a real key; confirm free-tier coverage + Level-1 text quality before executing T3+.
+> - **Level-2 upgrade (future):** purchasing the Enhanced plan lets the provider return real speaker turns; re-ingest populates `speaker`/`role`/`section_kind` — same table, no migration, and the reader conditionally renders turns.
+>
+> The original Motley-Fool task bodies below remain for reference; follow the deltas above where they conflict.
+
 **Goal:** Add `/stock/[TICKER]/transcripts` tab that ingests the latest 4 quarters of Motley Fool earnings call transcripts on first visit, stores them in a parallel `transcript_chunks` vector table, and lets the existing Ask feature search transcripts alongside filings via a `sourceScope` toggle.
 
 **Architecture:** Python subprocess scraper (mirrors yfinance_fetch.py) → TranscriptsProvider TS wrapper → TranscriptsService orchestrates list/get/ingest with 7-day freshness check → chunks land in new `transcript_chunks` table (same vector schema + HNSW index as filing chunks) → SearchService unions filing + transcript corpora when `sourceScope='all'`.
