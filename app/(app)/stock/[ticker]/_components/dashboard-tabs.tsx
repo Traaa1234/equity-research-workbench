@@ -3,6 +3,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export type DashboardTab =
   | 'overview'
+  | 'journal'
   | 'financials'
   | 'technical'
   | 'news'
@@ -20,6 +21,7 @@ interface Props {
 
 const TABS: Array<{ value: DashboardTab; label: string; href: (t: string) => string }> = [
   { value: 'overview',   label: 'Overview',   href: (t) => `/stock/${t}` },
+  { value: 'journal',    label: 'Journal',    href: (t) => `/stock/${t}/journal` },
   { value: 'financials', label: 'Financials', href: (t) => `/stock/${t}/financials` },
   { value: 'technical',  label: 'Technical',  href: (t) => `/stock/${t}/technical` },
   { value: 'news',       label: 'News',       href: (t) => `/stock/${t}/news` },
