@@ -99,6 +99,13 @@
       "when": 1780417291613,
       "tag": "0013_common_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780421221640,
+      "tag": "0014_kind_sentry",
+      "breakpoints": true
     }
   ]
 }

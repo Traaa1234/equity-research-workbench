@@ -442,3 +442,47 @@ export const transcriptFreshness = pgTable('transcript_freshness', {
   lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }).notNull().defaultNow(),
   lastUrlSeen: text('last_url_seen')
 });
+
+export const journalPositions = pgTable(
+  'journal_positions',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    userId: uuid('user_id').notNull(),
+    ticker: text('ticker').notNull().references(() => companies.ticker, { onDelete: 'cascade' }),
+    status: text('status').notNull(),                  // 'open' | 'closed'
+    openedAt: date('opened_at').notNull(),
+    closedAt: date('closed_at'),
+    convictionAtOpen: integer('conviction_at_open'),   // 1..10
+    targetPrice: numeric('target_price', { precision: 18, scale: 4 }),
+    stopPrice: numeric('stop_price', { precision: 18, scale: 4 }),
+    expectedHoldingDays: integer('expected_holding_days'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    userTickerIdx: index('journal_positions_user_ticker_idx').on(t.userId, t.ticker),
+    userStatusIdx: index('journal_positions_user_status_idx').on(t.userId, t.status)
+  })
+);
+
+export const journalEntries = pgTable(
+  'journal_entries',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    positionId: bigint('position_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => journalPositions.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),                      // 'entry' | 'review' | 'exit'
+    occurredAt: date('occurred_at').notNull(),
+    thesisMd: text('thesis_md').notNull().default(''),
+    convictionAtTime: integer('conviction_at_time'),
+    outcome: text('outcome'),                          // 'right' | 'wrong' | 'mixed'
+    whatChanged: text('what_changed'),
+    lessons: text('lessons'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({
+    positionIdx: index('journal_entries_position_idx').on(t.positionId)
+  })
+);
