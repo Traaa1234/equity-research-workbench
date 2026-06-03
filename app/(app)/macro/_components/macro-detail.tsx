@@ -15,14 +15,16 @@ export function MacroDetail({ seriesId, onClose }: { seriesId: string | null; on
   const [range, setRange] = useState<Range>('3y');
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!seriesId) { setDetail(null); return; }
+    if (!seriesId) { setDetail(null); setError(null); return; }
     let alive = true;
-    setLoading(true);
+    setLoading(true); setError(null);
     fetch(`/api/macro/${encodeURIComponent(seriesId)}?range=${range}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d) => { if (alive) setDetail(d as Detail); })
+      .catch((e) => { if (alive) setError(String(e)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [seriesId, range]);
@@ -33,7 +35,7 @@ export function MacroDetail({ seriesId, onClose }: { seriesId: string | null; on
         <Dialog.Overlay className="fixed inset-0 bg-black/50" />
         <Dialog.Content className="fixed right-0 top-0 h-full w-full max-w-lg bg-background border-l border-border p-5 overflow-y-auto">
           <Dialog.Title className="text-lg font-semibold">{detail?.label ?? seriesId}</Dialog.Title>
-          <Dialog.Description className="text-xs text-muted-foreground mb-3">{detail?.explain ?? ''}</Dialog.Description>
+          <Dialog.Description className="text-xs text-muted-foreground mb-3">{detail?.explain ?? 'Macro series detail'}</Dialog.Description>
 
           <div className="flex gap-1.5 mb-3">
             {RANGES.map((r) => (
@@ -45,6 +47,7 @@ export function MacroDetail({ seriesId, onClose }: { seriesId: string | null; on
           </div>
 
           <div className="h-64">
+            {!loading && error && <div className="text-sm text-red-400">Failed to load: {error}</div>}
             {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
             {!loading && detail && detail.points.length > 0 && (
               <ResponsiveContainer width="100%" height="100%">
