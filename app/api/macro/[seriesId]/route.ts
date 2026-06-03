@@ -4,6 +4,7 @@ import { NotFoundError, ValidationError } from '@/lib/providers/types';
 import { requireUserId } from '@/lib/auth/current-user';
 import { getServiceDb } from '@/lib/db/client';
 import { MacroService } from '@/lib/services/macro';
+import { MACRO_REGISTRY } from '@/lib/compute/macro-registry';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,13 +19,10 @@ export async function GET(req: Request, ctx: Ctx) {
     const seriesId = decodeURIComponent(ctx.params.seriesId);
     const rangeRaw = new URL(req.url).searchParams.get('range') ?? '3y';
     if (!RANGES.includes(rangeRaw as Range)) throw new ValidationError(`range must be one of ${RANGES.join(', ')}`);
+    if (!MACRO_REGISTRY.some((d) => d.seriesId === seriesId)) throw new NotFoundError(`Unknown series: ${seriesId}`);
     const svc = new MacroService({ db: getServiceDb() });
-    try {
-      const detail = await svc.getSeriesDetail(seriesId, rangeRaw as Range);
-      return NextResponse.json(detail, { headers: { 'Cache-Control': 'private, max-age=300' } });
-    } catch {
-      throw new NotFoundError(`Unknown series: ${seriesId}`);
-    }
+    const detail = await svc.getSeriesDetail(seriesId, rangeRaw as Range);
+    return NextResponse.json(detail, { headers: { 'Cache-Control': 'private, max-age=300' } });
   } catch (err) {
     return errorResponse(err, { route: 'macro/[seriesId]' });
   }
