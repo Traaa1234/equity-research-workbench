@@ -61,7 +61,10 @@ export class CountryScorecardService {
 
   async getScorecard(): Promise<{ asOf: string | null; countries: RankedRow[] }> {
     const rows = scoreCountries(await this.loadInputs());
-    const fresh = await this.deps.db.select().from(macroFreshness);
+    // asOf over THIS feature's series only (not A1 macro rows that share macro_freshness),
+    // so the stale-data banner reflects country-data recency.
+    const ids = [...countryFredIds(), ...countryEtfs()];
+    const fresh = ids.length ? await this.deps.db.select().from(macroFreshness).where(inArray(macroFreshness.seriesId, ids)) : [];
     const asOf = fresh.map((r) => r.lastObsDate).filter((d): d is string => !!d).sort().pop() ?? null;
     return { asOf, countries: rows };
   }
