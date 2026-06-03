@@ -28,7 +28,7 @@ describe('MacroService', () => {
   });
 
   it('refreshAll upserts series + freshness for all 13 tiles', async () => {
-    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf });
+    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf, fredDelayMs: 0 });
     const summary = await svc.refreshAll('daily');
     expect(summary.attempted).toBe(13);
     expect(summary.ok).toBe(13);
@@ -37,7 +37,7 @@ describe('MacroService', () => {
   });
 
   it('getBoard returns grouped tiles + a weather verdict', async () => {
-    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf });
+    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf, fredDelayMs: 0 });
     await svc.refreshAll('daily');
     const board = await svc.getBoard();
     expect(board.groups.length).toBe(6);
@@ -48,7 +48,7 @@ describe('MacroService', () => {
   });
 
   it('getSeriesDetail throws for an unknown series', async () => {
-    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf });
+    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf, fredDelayMs: 0 });
     await expect(svc.getSeriesDetail('NOPE', '3y')).rejects.toThrow();
   });
 });

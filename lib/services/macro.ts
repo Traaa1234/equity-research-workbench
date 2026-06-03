@@ -15,6 +15,8 @@ interface Deps {
   db: ServiceDb;
   fred?: FredProvider;
   yf?: YFinanceProvider;
+  /** Delay (ms) between FRED requests to avoid keyless rate-limiting. Default 500; pass 0 in tests. */
+  fredDelayMs?: number;
 }
 
 export interface MacroRefreshSummary { attempted: number; ok: number; failed: number }
@@ -37,6 +39,9 @@ function isoDaysAgo(days: number): string {
 function isoYearsAgo(years: number): string {
   const d = new Date(); d.setFullYear(d.getFullYear() - years); return d.toISOString().slice(0, 10);
 }
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
+}
 
 export class MacroService {
   constructor(private readonly deps: Deps) {}
@@ -45,13 +50,20 @@ export class MacroService {
     if (!this.deps.fred || !this.deps.yf) throw new Error('MacroService.refreshAll requires fred + yf providers');
     const fredStart = mode === 'backfill' ? isoYearsAgo(5) : isoDaysAgo(35);
     const yfRange: '1Y' | '5Y' = mode === 'backfill' ? '5Y' : '1Y';
+    const fredDelayMs = this.deps.fredDelayMs ?? 500;
     let ok = 0, failed = 0;
 
     for (const def of MACRO_REGISTRY) {
       try {
-        const points: SeriesPoint[] = def.source === 'fred'
-          ? await this.deps.fred.fetchSeries(def.seriesId, { start: fredStart })
-          : (await this.deps.yf.prices(def.seriesId, yfRange)).map((p) => ({ date: p.date, value: p.close }));
+        let points: SeriesPoint[];
+        if (def.source === 'fred') {
+          // Space out keyless FRED requests to avoid HTTP 429. A FRED_API_KEY
+          // uses the JSON API (no rate-limit at this volume), so this is a cheap no-op there.
+          await sleep(fredDelayMs);
+          points = await this.deps.fred.fetchSeries(def.seriesId, { start: fredStart });
+        } else {
+          points = (await this.deps.yf.prices(def.seriesId, yfRange)).map((p) => ({ date: p.date, value: p.close }));
+        }
         await this.upsert(def.seriesId, def.source, points);
         await this.setFreshness(def.seriesId, points, 'ok', null);
         ok++;

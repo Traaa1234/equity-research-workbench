@@ -18,7 +18,7 @@ describe('macro board shape', () => {
   beforeEach(async () => { await dbH.db.execute(sql`TRUNCATE TABLE macro_series, macro_freshness RESTART IDENTITY CASCADE`); });
 
   it('produces weather + 6 groups + 13 tiles', async () => {
-    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf });
+    const svc = new MacroService({ db: dbH.db, fred: fakeFred, yf: fakeYf, fredDelayMs: 0 });
     await svc.refreshAll('daily');
     const board = await svc.getBoard();
     expect(board.weather.label).toBeTypeOf('string');
