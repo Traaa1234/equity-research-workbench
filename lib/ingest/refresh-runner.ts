@@ -4,10 +4,11 @@ import type { ServiceDb } from '@/lib/db/client';
 import type { SnapshotService } from '@/lib/services/snapshot';
 import type { FinancialsService } from '@/lib/services/financials';
 import type { PricesService } from '@/lib/services/prices';
+import type { MacroService } from '@/lib/services/macro';
 import type { PeriodType, StatementType } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 
-export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings';
+export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro';
 
 interface Deps {
   db: ServiceDb;
@@ -15,6 +16,7 @@ interface Deps {
   snapshotSvc: SnapshotService;
   financialsSvc: FinancialsService;
   pricesSvc: PricesService;
+  macroSvc?: MacroService;
   /** Time budget in milliseconds. Vercel Cron Hobby max is 60s; default to 50s. */
   budgetMs?: number;
 }
@@ -64,7 +66,6 @@ async function recordRun(
 export async function runRefresh(deps: Deps): Promise<RefreshSummary> {
   const started = Date.now();
   const budget = deps.budgetMs ?? 50_000;
-  const tickers = await getRefreshTickers(deps.db);
 
   const summary: RefreshSummary = {
     kind: deps.kind,
@@ -74,6 +75,19 @@ export async function runRefresh(deps: Deps): Promise<RefreshSummary> {
     skipped: 0,
     durationMs: 0
   };
+
+  if (deps.kind === 'macro') {
+    if (!deps.macroSvc) throw new Error('macroSvc required for macro refresh');
+    const r = await deps.macroSvc.refreshAll('daily');
+    summary.attempted = r.attempted;
+    summary.succeeded = r.ok;
+    summary.failed = r.failed;
+    summary.durationMs = Date.now() - started;
+    logger.info(summary, 'refresh-runner: macro done');
+    return summary;
+  }
+
+  const tickers = await getRefreshTickers(deps.db);
 
   for (const ticker of tickers) {
     if (Date.now() - started > budget) {

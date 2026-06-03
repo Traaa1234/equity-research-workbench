@@ -34,7 +34,8 @@
     "embed-existing": "tsx scripts/embed-existing.ts",
     "reparse": "tsx scripts/reparse-existing.ts",
     "refresh-fundamentals": "tsx scripts/refresh-fundamentals.ts",
-    "seed-universe": "tsx scripts/seed-universe.ts"
+    "seed-universe": "tsx scripts/seed-universe.ts",
+    "seed-macro": "tsx scripts/seed-macro.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",

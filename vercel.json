@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/refresh?kind=fundamentals",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/refresh?kind=macro",
+      "schedule": "0 22 * * *"
     }
   ],
   "functions": {
