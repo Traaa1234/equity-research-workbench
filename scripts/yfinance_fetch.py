@@ -170,6 +170,17 @@ def fetch_prices(ticker: str, years: int) -> dict:
     return {"prices": rows}
 
 
+def fetch_prices_batch(tickers_csv: str, years: int) -> dict:
+    tickers = [t.strip().upper() for t in tickers_csv.split(",") if t.strip()]
+    out = {}
+    for tk in tickers:
+        try:
+            out[tk] = fetch_prices(tk, years).get("prices", [])
+        except Exception:
+            out[tk] = []
+    return {"series": out}
+
+
 def get_fx_rate_history(from_ccy: str, to_ccy: str, period_ends: list[str]) -> dict:
     """Return a dict mapping period_end (YYYY-MM-DD string) -> FX rate.
        Uses daily history from yfinance and picks the nearest available date for each period_end."""
@@ -415,6 +426,10 @@ def main():
             print(json.dumps(fetch_prices(ticker, 1)))
         elif kind == "prices_5y":
             print(json.dumps(fetch_prices(ticker, 5)))
+        elif kind == "prices_batch_1y":
+            print(json.dumps(fetch_prices_batch(ticker, 1)))
+        elif kind == "prices_batch_5y":
+            print(json.dumps(fetch_prices_batch(ticker, 5)))
         elif kind == "earnings":
             print(json.dumps(fetch_earnings(ticker)))
         elif kind == "statements_income_annual":

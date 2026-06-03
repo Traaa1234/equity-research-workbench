@@ -42,7 +42,9 @@ type Kind =
   | 'statements_balance_annual'
   | 'statements_balance_quarterly'
   | 'statements_cash_flow_annual'
-  | 'statements_cash_flow_quarterly';
+  | 'statements_cash_flow_quarterly'
+  | 'prices_batch_1y'
+  | 'prices_batch_5y';
 
 export interface YfInfo {
   longBusinessSummary: string | null;
@@ -109,6 +111,12 @@ export class YFinanceProvider implements Provider {
     const kind: Kind = range === '1Y' ? 'prices_1y' : 'prices_5y';
     const out = await this.run(ticker, kind);
     return (out.prices ?? []) as PricePoint[];
+  }
+
+  async pricesBatch(symbols: string[], range: '1Y' | '5Y'): Promise<Record<string, PricePoint[]>> {
+    const kind: Kind = range === '1Y' ? 'prices_batch_1y' : 'prices_batch_5y';
+    const out = await this.run(symbols.join(','), kind);
+    return (out?.series ?? {}) as Record<string, PricePoint[]>;
   }
 
   async earnings(ticker: string, _count: number): Promise<EarningsPoint[]> {

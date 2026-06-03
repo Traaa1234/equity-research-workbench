@@ -264,6 +264,17 @@ def fetch_prices(ticker, years):
     return {"prices": rows}
 
 
+def fetch_prices_batch(tickers_csv, years):
+    tickers = [t.strip().upper() for t in tickers_csv.split(",") if t.strip()]
+    out = {}
+    for tk in tickers:
+        try:
+            out[tk] = fetch_prices(tk, years).get("prices", [])
+        except Exception:
+            out[tk] = []
+    return {"series": out}
+
+
 def fetch_earnings(ticker):
     t = yf.Ticker(ticker)
     df = t.earnings_history
@@ -352,6 +363,10 @@ def dispatch(ticker, kind):
                 if res is None:
                     return 404, {"error": f"Ticker not found: {ticker}", "kind": "NotFound"}
                 return 200, res
+        if kind == "prices_batch_1y":
+            return 200, fetch_prices_batch(ticker, 1)
+        if kind == "prices_batch_5y":
+            return 200, fetch_prices_batch(ticker, 5)
         return 400, {"error": f"Unknown kind: {kind}", "kind": "Validation"}
     except Exception as e:
         return 500, {"error": f"{type(e).__name__}: {e}", "kind": "Provider"}
