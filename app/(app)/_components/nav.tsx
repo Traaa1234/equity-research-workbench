@@ -19,6 +19,9 @@ export function Nav({ userEmail }: { userEmail: string }) {
           <Link href="/macro" className="text-sm text-muted-foreground hover:text-foreground">
             Macro
           </Link>
+          <Link href="/macro/countries" className="text-sm text-muted-foreground hover:text-foreground">
+            Countries
+          </Link>
         </nav>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" asChild>
