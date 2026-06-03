@@ -13,15 +13,17 @@ import { FinancialsService } from '@/lib/services/financials';
 import { PricesService } from '@/lib/services/prices';
 import { MacroService } from '@/lib/services/macro';
 import { FredProvider } from '@/lib/providers/fred';
+import { CountryScorecardService } from '@/lib/services/country-scorecard';
 import { loadServerEnv } from '@/lib/env';
 
-const VALID_KINDS: readonly RefreshKind[] = ['snapshot', 'fundamentals', 'prices', 'earnings', 'macro'];
+const VALID_KINDS: readonly RefreshKind[] = ['snapshot', 'fundamentals', 'prices', 'earnings', 'macro', 'countries'];
 
 let cachedDeps: {
   snapshot: SnapshotService;
   financials: FinancialsService;
   prices: PricesService;
   macro: MacroService;
+  country: CountryScorecardService;
 } | null = null;
 
 function buildDeps() {
@@ -32,12 +34,14 @@ function buildDeps() {
   const yf = new YFinanceProvider();
   const redis = getRedisCache();
   const macro = new MacroService({ db, fred: new FredProvider(), yf });
+  const country = new CountryScorecardService({ db, fred: new FredProvider(), yf });
   // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
   cachedDeps = {
     snapshot: new SnapshotService({ db, primary: yf, fallback: fd, redis }),
     financials: new FinancialsService({ db, primary: yf, fallback: fd, redis }),
     prices: new PricesService({ db, primary: yf, fallback: fd, redis }),
-    macro
+    macro,
+    country
   };
   return cachedDeps;
 }
@@ -63,6 +67,7 @@ export async function GET(req: Request) {
       financialsSvc: deps.financials,
       pricesSvc: deps.prices,
       macroSvc: deps.macro,
+      countrySvc: deps.country,
       budgetMs: 50_000
     });
     return ok(summary);

@@ -5,10 +5,11 @@ import type { SnapshotService } from '@/lib/services/snapshot';
 import type { FinancialsService } from '@/lib/services/financials';
 import type { PricesService } from '@/lib/services/prices';
 import type { MacroService } from '@/lib/services/macro';
+import type { CountryScorecardService } from '@/lib/services/country-scorecard';
 import type { PeriodType, StatementType } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 
-export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro';
+export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro' | 'countries';
 
 interface Deps {
   db: ServiceDb;
@@ -17,6 +18,7 @@ interface Deps {
   financialsSvc: FinancialsService;
   pricesSvc: PricesService;
   macroSvc?: MacroService;
+  countrySvc?: CountryScorecardService;
   /** Time budget in milliseconds. Vercel Cron Hobby max is 60s; default to 50s. */
   budgetMs?: number;
 }
@@ -84,6 +86,17 @@ export async function runRefresh(deps: Deps): Promise<RefreshSummary> {
     summary.failed = r.failed;
     summary.durationMs = Date.now() - started;
     logger.info(summary, 'refresh-runner: macro done');
+    return summary;
+  }
+
+  if (deps.kind === 'countries') {
+    if (!deps.countrySvc) throw new Error('countrySvc required for countries refresh');
+    const r = await deps.countrySvc.refreshAll('daily');
+    summary.attempted = r.fredOk + r.fredFailed + r.etfOk;
+    summary.succeeded = r.fredOk + r.etfOk;
+    summary.failed = r.fredFailed;
+    summary.durationMs = Date.now() - started;
+    logger.info(summary, 'refresh-runner: countries done');
     return summary;
   }
 
