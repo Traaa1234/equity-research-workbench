@@ -486,3 +486,25 @@ export const journalEntries = pgTable(
     positionIdx: index('journal_entries_position_idx').on(t.positionId)
   })
 );
+
+export const macroSeries = pgTable(
+  'macro_series',
+  {
+    seriesId: text('series_id').notNull(),     // registry key: FRED id or yfinance symbol
+    obsDate: date('obs_date').notNull(),
+    value: numeric('value', { precision: 20, scale: 6 }).notNull(),
+    source: text('source').notNull(),          // 'fred' | 'yfinance'
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.seriesId, t.obsDate] }),
+    seriesIdx: index('macro_series_series_idx').on(t.seriesId, t.obsDate),
+  })
+);
+
+export const macroFreshness = pgTable('macro_freshness', {
+  seriesId: text('series_id').primaryKey(),
+  lastFetchedAt: timestamp('last_fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  lastObsDate: date('last_obs_date'),
+  status: text('status').notNull().default('ok'),  // 'ok' | 'error'
+  error: text('error'),
+});
