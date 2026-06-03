@@ -26,6 +26,11 @@ describe('FredProvider', () => {
     expect(rows.map((r) => r.value)).toEqual([4.2, 4.21]);
   });
 
+  it('throws ProviderError on a JSON body with no observations key', async () => {
+    const p = new FredProvider({ apiKey: 'k', fetch: fakeFetch('{"error_code":400,"error_message":"bad key"}', 'application/json') });
+    await expect(p.fetchSeries('DGS10', { start: '2026-05-01' })).rejects.toThrow(/observations/);
+  });
+
   it('uses the api.stlouisfed.org host when keyed, fredgraph when keyless', async () => {
     const seen: string[] = [];
     const spy: typeof fetch = (async (url: string) => {

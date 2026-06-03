@@ -15,6 +15,8 @@ interface Options {
  * Prefers the keyed JSON API when an api key is available; otherwise uses the
  * keyless fredgraph CSV endpoint. Always bound by `start` (cosd / observation_start).
  */
+// Intentionally does NOT implement the stock-centric `Provider` interface —
+// FRED returns raw macro time-series, not company/price/statement shapes.
 export class FredProvider {
   private readonly apiKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
@@ -38,9 +40,19 @@ export class FredProvider {
     }
     if (!res.ok) throw new ProviderError(`FRED ${seriesId} HTTP ${res.status}`);
 
+    let body: string;
+    try {
+      body = await res.text();
+    } catch (err) {
+      throw new ProviderError(`FRED ${seriesId} body read failed: ${String(err)}`);
+    }
     const contentType = res.headers.get('content-type') ?? '';
-    const body = await res.text();
-    return contentType.includes('json') ? parseJson(body) : parseCsv(body);
+    try {
+      return contentType.includes('json') ? parseJson(body) : parseCsv(body);
+    } catch (err) {
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(`FRED ${seriesId} parse failed: ${String(err)}`);
+    }
   }
 }
 
@@ -66,9 +78,13 @@ export function parseCsv(body: string): FredPoint[] {
 }
 
 export function parseJson(body: string): FredPoint[] {
-  const parsed = JSON.parse(body) as { observations?: { date: string; value: string }[] };
+  const parsed: unknown = JSON.parse(body);
+  if (typeof parsed !== 'object' || parsed === null || !('observations' in parsed)) {
+    throw new ProviderError(`FRED JSON response missing 'observations'`);
+  }
+  const obs = (parsed as { observations?: { date: string; value: string }[] }).observations ?? [];
   const out: FredPoint[] = [];
-  for (const o of parsed.observations ?? []) {
+  for (const o of obs) {
     const value = num(o.value);
     if (o.date && value != null) out.push({ date: o.date, value });
   }
