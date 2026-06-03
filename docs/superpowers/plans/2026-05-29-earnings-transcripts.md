@@ -2,18 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> ## ⚠️ REVISION 2026-06-02 — source changed to EarningsCall API (Level 1 free)
+> ## ⚠️ REVISION 2026-06-02 — source = API Ninjas Earnings Transcript API (free tier)
 >
 > See the revision box atop the design spec. Net effect on this plan:
 >
 > - **T1 (schema) + T2 (RLS): DONE** — already built and migrated to both Neon branches (commits `6d00c4c`, `63910df`). Source-agnostic; no change.
-> - **T3 (Python provider): REPLACED.** Build `scripts/earningscall_fetch.py` (kinds `list <TICKER> <k>` and `fetch <TICKER> <year> <quarter>`) + Vercel wrapper `api/fallback/earningscall.py`, wrapping the `earningscall` PyPI library. Reads `EARNINGSCALL_API_KEY`. NO HTML scraping, NO BeautifulSoup. Demo mode (no key) covers AAPL/MSFT for tests. Returns `{items:[{year,quarter,callDate}]}` / `{text:"…"}`.
-> - **T4 (TranscriptsProvider TS wrapper): same interface, new subprocess.** `list()`/`fetch()` signatures unchanged; `fetch()` returns `sections: [{ kind:'body', speaker:'', role:null, text:<full> }]` (single section in Level-1 mode). **Widen `TranscriptSection['kind']` in `lib/providers/types.ts` from `'prepared' | 'qa'` to `'prepared' | 'qa' | 'body'`** (one-line type change; the DB `section_kind` column is free text so no migration). Spawn-injection unit tests as before.
-> - **T5 (TranscriptsService): chunk the blob.** Instead of one-chunk-per-speaker-turn, reuse the existing `subChunk()` helper (Slice 2C) to split the full text into fixed windows; each window → one `transcript_chunks` row with `section_index`, `section_kind:'body'`, `speaker:''`, `role:null`. Freshness/idempotency logic unchanged.
-> - **T6 (SearchService sourceScope), T7 (API routes + RAG passthrough), T10 (smoke/E2E/push): carry over unchanged** (the smoke script is the already-written `scripts/try-earningscall.py` flow).
-> - **T8/T9 (UI): reader simplified.** Single-transcript reader renders scrollable paragraphs, NOT a speaker-turn rail; drop the Prepared/Q&A section nav. List page, tab nav, empty/skeleton unchanged. Ask citations show `🎙 Q{q} {year} call ({TICKER})` (no speaker name until Level 2).
-> - **Prerequisite:** run `scripts/try-earningscall.py` with a real key; confirm free-tier coverage + Level-1 text quality before executing T3+.
-> - **Level-2 upgrade (future):** purchasing the Enhanced plan lets the provider return real speaker turns; re-ingest populates `speaker`/`role`/`section_kind` — same table, no migration, and the reader conditionally renders turns.
+> - **T3 (Python scraper + Vercel wrapper): DELETED.** API Ninjas is a plain HTTPS GET, so there is NO Python script and NO `api/fallback/*.py`. Skip T3 entirely. (Net: the slice drops from 10 build tasks to ~9.)
+> - **T4 (TranscriptsProvider): pure TypeScript fetch wrapper.** `lib/providers/transcripts.ts` calls `fetch('https://api.api-ninjas.com/v1/earningstranscript?ticker=…&year=…&quarter=…', { headers: { 'X-Api-Key': env.API_NINJAS_KEY } })`. `list(ticker, k)` fetches the latest call (no year/quarter) to get the most-recent `{year, quarter}`, then walks back `k-1` quarters arithmetically. `fetch(ticker, year, quarter)` returns `sections: [{ kind:'body', speaker:'', role:null, text:<transcript> }]` (or `[]` if empty). **Widen `TranscriptSection['kind']` to `'prepared' | 'qa' | 'body'`** (one-line; DB `section_kind` is free text, no migration). Unit tests mock `fetch` (inject via a `fetchImpl` constructor option — same DI style as other providers). No live key needed in CI. Add `API_NINJAS_KEY` to the env loader + `.env.local` + Vercel.
+> - **T5 (TranscriptsService): chunk the blob.** Reuse the existing `subChunk()` helper (Slice 2C) to split the full text into fixed windows; each window → one `transcript_chunks` row with `section_index`, `section_kind:'body'`, `speaker:''`, `role:null`. Set `transcripts.source = 'api_ninjas'`. Freshness/idempotency logic unchanged. **Skip a quarter that returns a 400 "premium required"** (pre-2025 on free) and continue with the rest.
+> - **T6 (SearchService sourceScope), T7 (API routes + RAG passthrough), T10 (E2E/push): carry over unchanged.**
+> - **T8/T9 (UI): reader simplified.** Single-transcript reader renders scrollable paragraphs (split on blank lines), NOT a speaker-turn rail; drop the Prepared/Q&A section nav. List page, tab nav, empty/skeleton unchanged. Ask citations show `🎙 Q{q} {year} call ({TICKER})` (no speaker name on free tier).
+> - **Prerequisite:** one-line curl to confirm the key + free-tier text:
+>   `curl -H "X-Api-Key: $API_NINJAS_KEY" "https://api.api-ninjas.com/v1/earningstranscript?ticker=AAPL"` → expect a non-empty `transcript` string.
+> - **Premium upgrade (future):** the paid `transcript_split` field gives speaker/role per segment; re-ingest populates `speaker`/`role`/`section_kind` — same table, no migration; reader conditionally renders turns.
 >
 > The original Motley-Fool task bodies below remain for reference; follow the deltas above where they conflict.
 

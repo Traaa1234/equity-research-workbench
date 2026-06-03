@@ -5,87 +5,91 @@
 
 ---
 
-## ⚠️ REVISION 2026-06-02 — EarningsCall API (Level 1 free)
+## ⚠️ REVISION 2026-06-02 — API Ninjas Earnings Transcript API (free tier)
 
 The original design (everything below this box) sourced transcripts by **scraping
-Motley Fool**. Live recon found that source is hostile to scraping: User-Agent
-gating serves a stripped page, and the actual speaker-turn body is JS-rendered /
-gated, so a plain `requests` fetch only gets a financial-summary shell. We
-**re-sourced onto the EarningsCall API** instead. This box supersedes the
-**Source**, **Scraper**, and **Chunking** sections below; everything else
-(schema, RLS, service shape, SearchService `sourceScope`, API routes, tab nav,
-testing strategy) carries over unchanged.
+Motley Fool**. Live recon found that source is hostile to scraping (User-Agent
+gating + JS/gated body). We **re-sourced onto the API Ninjas Earnings Call
+Transcript API**, whose **free tier returns the full transcript text**. This box
+supersedes the **Source**, **Scraper**, and **Chunking** sections below;
+everything else (schema, RLS, service shape, SearchService `sourceScope`, API
+routes, tab nav, testing strategy) carries over unchanged.
 
-### Source: EarningsCall API (Python SDK, `earningscall` on PyPI)
+### Source: API Ninjas Earnings Call Transcript API (plain REST — no Python)
 
-- A documented REST API with an official Python library — no scraping, no
-  fragility. Drops into the **same Python-subprocess pattern** as the existing
-  `yfinance_fetch.py` / EDGAR providers.
-- **Free API key → 5,000+ US companies, full transcript text (Level 1).** Auth
-  via env `EARNINGSCALL_API_KEY` (set in `.env.local` + Vercel env). Demo mode
-  (no key) covers AAPL + MSFT only — useful for tests/CI.
-- Library surface used: `get_company(ticker)` → `company.events()` (lists
-  `{year, quarter}`) → `company.get_transcript(year, quarter).text` (full text).
-- **Level 1 only for v1.** Speaker segmentation + prepared-vs-Q&A split (Levels
-  2/4) require a paid "Enhanced" plan — deferred. The schema already has
-  `speaker` / `role` / `section_kind` columns so a later Level-2 upgrade is a
-  re-ingest with no migration.
+- `GET https://api.api-ninjas.com/v1/earningstranscript` with header
+  `X-Api-Key: <key>`. Params: `ticker` (required), `year` + `quarter` (optional;
+  omitting both returns the **latest** call). Coverage: 8,000+ US companies.
+- **Free tier includes the `transcript` field** (full text, single string), plus
+  `date`, `year`, `quarter`, `ticker`, `cik`, `earnings_timing`. **Premium-only**
+  (not needed for v1): `transcript_split` (speaker-by-speaker), `summary`,
+  `guidance`, `risk_factors`, `overall_sentiment`.
+- **Free-tier limit:** calls **before 2025 require premium**. Our scope is the
+  *latest 4 quarters*, which (as of mid-2026) are all 2025–2026 calls — so the
+  limit does not bite. Documented as a known constraint: on free, you get recent
+  quarters only. (If older history is ever wanted, that's a premium upgrade.)
+- Auth key in env `API_NINJAS_KEY` (`.env.local` + Vercel env). No demo/no-key
+  mode — tests mock `fetch`, so no live key is needed in CI.
 
-### Provider: `scripts/earningscall_fetch.py` + Vercel wrapper
+### Provider: pure TypeScript (deletes the Python task entirely)
 
-Replaces `motley_fool_fetch.py`. Two kinds, mirroring the established pattern:
-- `python earningscall_fetch.py <TICKER> list <k>` → `{ items: [{ year, quarter, callDate }, …] }` (newest k). `callDate` from the event if available, else `null`.
-- `python earningscall_fetch.py <TICKER> fetch <year> <quarter>` → `{ text: "<full transcript>" }` (or `{ text: "" }` if unavailable).
-- Reads `EARNINGSCALL_API_KEY` from env. On a missing/uncovered ticker (demo
-  tier, or company not in plan) returns empty items / empty text, not a crash.
-- Vercel serverless companion `api/fallback/earningscall.py` for prod parity.
-- TS wrapper `lib/providers/transcripts.ts` keeps the SAME `TranscriptsProvider`
-  interface the original plan defined (`list()`, `fetch()`), so the service and
-  everything above it are unchanged. `fetch()` returns a `TranscriptDocument`
-  whose `sections` is a **single section** `{ kind: 'body', speaker: '', role: null, text: <full text> }` in Level-1 mode.
+Because API Ninjas is a plain HTTPS GET with a header, the provider is **pure
+TypeScript** — `lib/providers/transcripts.ts` calls `fetch()` directly. **No
+`*_fetch.py` script, no `api/fallback/*.py` Vercel wrapper, no subprocess.** This
+removes the most fragile/heavy task from the original plan.
+
+`TranscriptsProvider` keeps the SAME interface (`list()`, `fetch()`):
+- `list(ticker, k)` → fetch the latest call (no year/quarter) to learn the most
+  recent `{year, quarter}`, then **walk back** `k-1` quarters arithmetically
+  (e.g. 2026-Q1 → 2025-Q4 → 2025-Q3 → 2025-Q2). Returns
+  `[{ year, quarter, callDate }]` newest-first. No separate "list" endpoint needed.
+- `fetch(ticker, year, quarter)` → GET with those params; return a
+  `TranscriptDocument` whose `sections` is a **single section**
+  `{ kind: 'body', speaker: '', role: null, text: <transcript> }`. Empty/absent
+  transcript → `sections: []`.
 - One type change: widen `TranscriptSection['kind']` from `'prepared' | 'qa'` to
-  `'prepared' | 'qa' | 'body'`. The DB `section_kind` column is free text, so no
-  migration — only the TS union widens.
+  `'prepared' | 'qa' | 'body'` (DB `section_kind` is free text — no migration).
+- Provider id `'api_ninjas'` recorded on `transcripts.source` for provenance.
 
 ### Chunking: split the full text ourselves
 
-Level 1 returns one text blob, not speaker turns. So instead of "one chunk per
-speaker turn," reuse the existing **`subChunk()` pure helper from Slice 2C**
-(the same one that sub-chunks filing sections) to split the transcript into
-fixed-size overlapping windows. Each window becomes one `transcript_chunks` row:
+The transcript is one text blob. Reuse the existing **`subChunk()` pure helper
+from Slice 2C** (same one that sub-chunks filing sections) to split it into
+fixed-size overlapping windows. Each window → one `transcript_chunks` row:
 - `section_index` = window index (0..N)
-- `section_kind` = `'body'`  (sentinel; not prepared/qa in Level 1)
-- `speaker` = `''`           (NOT NULL column; empty in Level 1)
+- `section_kind` = `'body'`  (sentinel)
+- `speaker` = `''`           (NOT NULL column; empty here)
 - `role` = `null`
 - `text` = the window
 - `embedding` = Qwen 1024-d (unchanged)
 
-When upgraded to Level 2 later, re-ingest populates real `speaker`/`role`/
-`section_kind` per turn — same table, no migration.
+A future premium upgrade (`transcript_split`) would re-ingest with real
+`speaker`/`role`/`section_kind` per turn — same table, no migration.
 
-### UI reader: plain transcript (no speaker rail in Level 1)
+### UI reader: plain transcript (no speaker rail)
 
-The single-transcript reader renders the text as scrollable paragraphs rather
-than a speaker-turn list, and drops the Prepared/Q&A section nav (not available
-in Level 1). The list page, tab nav, empty/skeleton states are unchanged. Ask
-citations show `🎙 Q{q} {year} call ({TICKER})` — quarter-level, no speaker name
-(speaker label returns when Level 2 is purchased).
+The single-transcript reader renders scrollable paragraphs (split the text on
+blank lines), not a speaker-turn list, and drops the Prepared/Q&A section nav.
+List page, tab nav, empty/skeleton states unchanged. Ask citations show
+`🎙 Q{q} {year} call ({TICKER})` — quarter-level, no speaker name.
 
 ### Error handling deltas
 
-- Missing/uncovered ticker (demo tier or not in plan): empty list / empty text,
+- Uncovered ticker / no transcript: empty list / empty text;
   `transcript_freshness.lastCheckedAt` still updated (don't re-poll for 7 days).
-- API 401 (bad/absent key): provider throws a typed `ProviderError`; service
-  logs and returns existing DB rows; freshness NOT updated so a fixed key
-  recovers on next visit.
-- API 429 (rate limit — free tier is limited): one retry with backoff, then
-  treat as a transient failure (existing rows returned, freshness untouched).
+- 400 "premium subscription required" (e.g. a pre-2025 quarter on free): treat as
+  "unavailable for this quarter," skip it, continue with the others.
+- 401 (bad/absent key): provider throws a typed `ProviderError`; service logs and
+  returns existing DB rows; freshness NOT updated so a fixed key recovers.
+- 429 (rate limit): one retry with backoff, then transient-failure handling
+  (existing rows returned, freshness untouched). The 7-day freshness cache keeps
+  request volume low regardless.
 
 ### Prerequisite before building
 
-Run `scripts/try-earningscall.py` (already written, uncommitted) with a real
-`EARNINGSCALL_API_KEY` to confirm free-tier coverage + Level-1 text quality
-hold up for non-demo tickers. Build proceeds once that smoke passes.
+Verify the key + free-tier text with a one-line curl (no script needed):
+`curl -H "X-Api-Key: $API_NINJAS_KEY" "https://api.api-ninjas.com/v1/earningstranscript?ticker=AAPL"`
+— confirm a non-empty `transcript` string comes back. Build proceeds once that's confirmed.
 
 ---
 
