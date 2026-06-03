@@ -14,6 +14,8 @@ describe('weatherFromVotes', () => {
     expect(weatherFromVotes([1, 0, 0, 0, 0, 0, 0]).label).toBe('MIXED');   // +1
     expect(weatherFromVotes([-1, -1, 0, 0, 0, 0, 0]).label).toBe('CLOUDY'); // -2
     expect(weatherFromVotes([-1, -1, -1, -1, 0, 0, 0]).label).toBe('STORMY'); // -4
+    expect(weatherFromVotes([-1, 0, 0, 0, 0, 0, 0]).label).toBe('MIXED');   // -1
+    expect(weatherFromVotes([-1, -1, -1, 0, 0, 0, 0]).label).toBe('CLOUDY'); // -3
   });
 });
 
@@ -80,7 +82,9 @@ describe('helpers', () => {
       return [`${y}-${String(m).padStart(2, '0')}-01`, 100 + i] as [string, number];
     }));
     const yoy = yoySeries(monthly);
-    expect(yoy[yoy.length - 1]!.value).toBeCloseTo(12);
+    const last = yoy.at(-1);
+    expect(last).toBeDefined();
+    expect(last!.value).toBeCloseTo(12);
   });
   it('pctChangeOverMonths', () => {
     const series = s([['2026-03-01', 100], ['2026-06-01', 110]]);
@@ -88,5 +92,18 @@ describe('helpers', () => {
   });
   it('sahmGap', () => {
     expect(sahmGap([3.5, 3.5, 3.6, 3.7, 3.8, 3.9, 4.0, 4.1, 4.2, 4.3, 4.4, 4.5])).toBeCloseTo((4.3 + 4.4 + 4.5) / 3 - 3.5);
+  });
+});
+
+describe('boundary regression', () => {
+  it('Sahm ticking up band', () => {
+    const base = Array.from({ length: 9 }, (_, i) => [`2025-${String(i + 1).padStart(2, '0')}-01`, 3.5] as [string, number]);
+    const ticking = s([...base, ['2025-10-01', 3.7], ['2025-11-01', 3.8], ['2025-12-01', 3.9]]); // avg3 3.8, min12 3.5, gap ~0.3
+    expect(classifySahm({ value: 3.9, series: ticking }).badge).toBe('TICKING UP');
+  });
+
+  it('Copper steady band', () => {
+    const flat = s([['2026-03-01', 5.0], ['2026-06-01', 5.1]]); // +2%
+    expect(classifyCopperMomentum({ value: 5.1, series: flat }).badge).toBe('STEADY');
   });
 });

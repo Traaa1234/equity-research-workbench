@@ -8,12 +8,14 @@ const f = (n: number, d = 2) => n.toFixed(d);
 
 // ---- helpers ----
 
+/** Fraction of values <= v. Returns 0.5 for an empty array. */
 export function percentileRank(values: number[], v: number): number {
   if (values.length === 0) return 0.5;
   const below = values.filter((x) => x <= v).length;
   return below / values.length;
 }
 
+/** Value at ~`months` before the last point. Null if series is empty; falls back to the oldest point if none is old enough. */
 export function valueMonthsAgo(series: SeriesPoint[], months: number): number | null {
   if (series.length === 0) return null;
   const last = series[series.length - 1]!;
@@ -35,16 +37,21 @@ export function pctChangeOverMonths(series: SeriesPoint[], months: number): numb
   return ((last - past) / past) * 100;
 }
 
+/** Sahm gap = avg(last 3) - min(last 12). Degrades gracefully for short series. */
 export function sahmGap(values: number[]): number {
   const last3 = values.slice(-3);
   const avg3 = last3.reduce((a, b) => a + b, 0) / Math.max(1, last3.length);
-  const min12 = Math.min(...values.slice(-12));
+  const last12 = values.slice(-12);
+  const min12 = last12.length === 0 ? avg3 : Math.min(...last12);
   return avg3 - min12;
 }
 
+/** Year-over-year % for monthly series; emits only points with a genuine 12-month-prior comparison (needs >= 13 points). */
 export function yoySeries(series: SeriesPoint[]): SeriesPoint[] {
   const out: SeriesPoint[] = [];
-  for (let i = 0; i < series.length; i++) {
+  // Start at 12: the first 12 monthly points have no genuine 12-month-prior
+  // comparison, so emitting them would produce misleading YoY values.
+  for (let i = 12; i < series.length; i++) {
     const prior = valueMonthsAgo(series.slice(0, i + 1), 12);
     if (prior != null && prior !== 0) {
       out.push({ date: series[i]!.date, value: ((series[i]!.value - prior) / prior) * 100 });
@@ -112,6 +119,7 @@ export function percentileClassifier(labels: [string, string, string]): Classifi
   };
 }
 
+/** Three-band level by value. Caller must pass loUpper <= hiLower. */
 export function bandClassifier(loUpper: number, hiLower: number, labels: [string, string, string]): Classifier {
   return ({ value }) => {
     if (value < loUpper) return { level: 1, badge: labels[0], explain: `${f(value)} < ${loUpper}.` };
