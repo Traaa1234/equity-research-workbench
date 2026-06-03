@@ -1,0 +1,1 @@
+DROP INDEX "macro_series_series_idx";

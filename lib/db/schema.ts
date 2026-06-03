@@ -497,7 +497,6 @@ export const macroSeries = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.seriesId, t.obsDate] }),
-    seriesIdx: index('macro_series_series_idx').on(t.seriesId, t.obsDate),
   })
 );
 
