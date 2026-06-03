@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { FredProvider } from '@/lib/providers/fred';
@@ -11,6 +11,11 @@ function fakeFetch(body: string, contentType: string): typeof fetch {
 }
 
 describe('FredProvider', () => {
+  // Isolate from an ambient FRED_API_KEY (.env) so `apiKey: undefined` is truly keyless.
+  let savedKey: string | undefined;
+  beforeAll(() => { savedKey = process.env.FRED_API_KEY; delete process.env.FRED_API_KEY; });
+  afterAll(() => { if (savedKey !== undefined) process.env.FRED_API_KEY = savedKey; });
+
   it('parses keyless CSV and drops "." missing markers', async () => {
     const p = new FredProvider({ apiKey: undefined, fetch: fakeFetch(csv, 'text/csv') });
     const rows = await p.fetchSeries('DGS10', { start: '2026-05-01' });
