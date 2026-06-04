@@ -6,10 +6,11 @@ import type { FinancialsService } from '@/lib/services/financials';
 import type { PricesService } from '@/lib/services/prices';
 import type { MacroService } from '@/lib/services/macro';
 import type { CountryScorecardService } from '@/lib/services/country-scorecard';
+import type { YieldCurveService } from '@/lib/services/yield-curve';
 import type { PeriodType, StatementType } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 
-export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro' | 'countries';
+export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro' | 'countries' | 'curve';
 
 interface Deps {
   db: ServiceDb;
@@ -19,6 +20,7 @@ interface Deps {
   pricesSvc: PricesService;
   macroSvc?: MacroService;
   countrySvc?: CountryScorecardService;
+  curveSvc?: YieldCurveService;
   /** Time budget in milliseconds. Vercel Cron Hobby max is 60s; default to 50s. */
   budgetMs?: number;
 }
@@ -97,6 +99,17 @@ export async function runRefresh(deps: Deps): Promise<RefreshSummary> {
     summary.failed = r.fredFailed;
     summary.durationMs = Date.now() - started;
     logger.info(summary, 'refresh-runner: countries done');
+    return summary;
+  }
+
+  if (deps.kind === 'curve') {
+    if (!deps.curveSvc) throw new Error('curveSvc required for curve refresh');
+    const r = await deps.curveSvc.refreshAll('daily');
+    summary.attempted = r.ok + r.failed;
+    summary.succeeded = r.ok;
+    summary.failed = r.failed;
+    summary.durationMs = Date.now() - started;
+    logger.info(summary, 'refresh-runner: curve done');
     return summary;
   }
 
