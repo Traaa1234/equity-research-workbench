@@ -30,8 +30,9 @@ News(+sentiment), Insiders, Holdings(13F), Filings(+AI summaries+tables),
 Quality(Piotroski/Altman/Beneish), Peers, Ask(RAG over filings).
 Watchlist (`/watchlist`): Roll-up, Discover(semantic NL search), Search, Ask.
 **Macro (`/macro`): cross-asset "macro weather" dashboard.** **Countries
-(`/macro/countries`): cross-country investability scorecard.** (Both NEW this
-session — see below.) Plus: cron refresh, add-ticker, health, CI.
+(`/macro/countries`): cross-country investability scorecard.** **Curve
+(`/macro/curve`): Treasury yield-curve detail.** (All three NEW this session —
+see below.) Plus: cron refresh, add-ticker, health, CI.
 
 **Universe seeder:** COMPLETE — ~6,300 of ~6,500 tickers have descriptions +
 1024-d embeddings (`companies_universe`).
@@ -60,8 +61,20 @@ Cross-country investability lens. **Live at `/macro/countries`, deployed.**
 - **Data coverage (verified):** CLI (`<ISO3>LOLITOAASTSAM`) for 15 (not Taiwan); unemployment (`LRHUTTTT<ISO2>M156S`) + long rate (`IRLTLT01<ISO2>M156N`) for the 10 DM; **inflation = US-only** (`CPIAUCSL`) — the OECD international CPI families on FRED are stale (~2024) / MoM%-type, unusable for a current YoY index, so non-US `cpi` is null → neutral. Documented best-effort gap; future enhancement = source current national CPI indexes per country. EM (CN/IN/BR/MX/ZA) + TW lack most macro dims → neutral there; they still score on equity momentum (ETF).
 - **DATA STATUS — ACTION ITEM:** the prod backfill is **PARTIAL** — DM core + all 16 ETFs landed (~5yr); JP/AU/KR + EM macro series **429'd** from running the backfill ~5× in one day (FRED per-IP rate limit, not a key/code problem — a single keyed request to a "failed" series returns data fine). **To complete: run `pnpm seed-countries` once more after FRED's limit resets (a few hours), or let the weekly cron fill it in.** The page renders all 16 now (neutral where data is missing).
 
+## NEW: Global Macro — Slice A2a (Yield-Curve Detail) — SHIPPED
+
+Treasury yield-curve page extending `/macro`. **Live at `/macro/curve`, deployed, data fully backfilled (9/9).**
+
+- **Spec/plan:** `docs/superpowers/specs/2026-06-03-yield-curve-design.md` + `.../plans/2026-06-03-yield-curve.md`.
+- **What it is:** 9 FRED maturities (`DGS3MO,DGS6MO,DGS1,DGS2,DGS5,DGS7,DGS10,DGS20,DGS30`) → recharts curve plot (now + 1mo/1yr/2yr overlay toggle) + maturity-yields strip + 3 spreads (2s10s/3m10y/5s30s) + a deterministic **read** (shape: INVERTED/PARTIALLY_INVERTED/FLAT/HUMPED/NORMAL; momentum: steepening/flattening/stable; **recession signal**: ON/CAUTION/WATCH/CLEAR with inversion duration). Click a maturity → recharts rate-history drawer. All rule-based; **no new table/migration/RLS** (reuses `macro_series`; DGS10 shared with A1, idempotent).
+- **Key files:** `lib/compute/curve-registry.ts` (9 maturities + 3 spreads) + `lib/compute/curve-analytics.ts` (`buildCurve`, the shape/recession/spread/momentum brain). `lib/services/yield-curve.ts` (`refreshAll`/`getCurve`/`getMaturityDetail`). APIs `app/api/curve/route.ts` + `[seriesId]`. UI `app/(app)/macro/curve/page.tsx` + `_components/{curve-view,curve-detail}.tsx`; nav "Curve" entry. Cron kind `curve` (`/api/cron/refresh?kind=curve`, daily `15 22 * * *`); backfill `pnpm seed-curve`.
+- **Note:** the recession "WATCH" level fires when 3m10y un-inverted within ~6mo (recessions historically *begin* after re-steepening). A2b (Fed/ECB/BoJ decision calendar) was split off as a future slice.
+
+### Shared-store note (important)
+`macro_series` + `macro_freshness` are now shared by A1 + B1 + A2a. Each service's reads (`getBoard`/`getScorecard`/`getCurve`) **filter to their own series ids** so `asOf`/stale-banners stay accurate (A1's `MacroService.getBoard` was fixed this session to scope its reads — `inArray(... MACRO_REGISTRY ids)`). New slices reusing the store MUST do the same.
+
 ### Global-macro future slices (not yet built)
-Spine A (cross-asset): **A2** yield-curve + central-bank tracker · **A3** regime detection / correlation matrix (deliberately deferred — A1 chose rule-based signals, not a composite regime score) · **A4** sector-rotation map · **A5** macro event calendar (free-data-source question). The shared foundation (FRED + yfinance providers incl. `pricesBatch`, `macro_series` store, cron, the registry + compute-on-read + heatmap-UI patterns) is built and reusable.
+**A2b** central-bank decision calendar (Fed/ECB/BoJ — has a free-data-source question) · **A3** regime detection / correlation matrix (deliberately deferred — A1 chose rule-based signals, not a composite regime score) · **A4** sector-rotation map · **A5** macro event calendar (free-data-source question). The shared foundation (FRED + yfinance providers incl. `pricesBatch`, `macro_series` store, the `macro`/`countries`/`curve` cron-kind pattern, registry + compute-on-read + page/drawer/heatmap UI patterns) is built and reusable.
 
 ## Parked threads (resume points — unchanged)
 
@@ -79,6 +92,6 @@ Spine A (cross-asset): **A2** yield-curve + central-bank tracker · **A3** regim
 ## Suggested next directions
 
 - **Complete the B1 country backfill** (quick): once FRED's per-IP limit resets, run `pnpm seed-countries` (prod) to fill JP/AU/KR + EM macro series; confirm `FRED_API_KEY` is in **Vercel env** so the weekly cron is clean.
-- **Next global-macro slice:** A2 (yield-curve + central-bank tracker) or A3/A4/A5 — foundation is in place and reusable.
+- **Next global-macro slice:** A2b (central-bank calendar), A3 (regime/correlation), A4 (sector rotation), or A5 (event calendar) — foundation is in place and reusable.
 - **Resume a parked thread** (transcripts data-source decision, or the journal-calibration dimensions question).
 - **Optional polish:** source current per-country CPI indexes to make B1's inflation dimension non-US (best-effort gap); add the `macro_freshness` RLS test (Minor gap flagged in A1 review).
