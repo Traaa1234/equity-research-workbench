@@ -1,4 +1,4 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { macroSeries, macroFreshness } from '@/lib/db/schema';
 import type { ServiceDb } from '@/lib/db/client';
 import type { FredProvider } from '@/lib/providers/fred';
@@ -100,7 +100,10 @@ export class MacroService {
   }
 
   async getBoard(): Promise<MacroBoard> {
-    const rows = await this.deps.db.select().from(macroSeries).orderBy(asc(macroSeries.obsDate));
+    // Scope reads to THIS dashboard's series — macro_series/macro_freshness are shared
+    // with the country-scorecard and yield-curve slices.
+    const ids = MACRO_REGISTRY.map((d) => d.seriesId);
+    const rows = await this.deps.db.select().from(macroSeries).where(inArray(macroSeries.seriesId, ids)).orderBy(asc(macroSeries.obsDate));
     const bySeries = new Map<string, SeriesPoint[]>();
     for (const r of rows) {
       const arr = bySeries.get(r.seriesId) ?? [];
@@ -120,7 +123,7 @@ export class MacroService {
       else counts.neutral++;
     }
 
-    const freshRows = await this.deps.db.select().from(macroFreshness);
+    const freshRows = await this.deps.db.select().from(macroFreshness).where(inArray(macroFreshness.seriesId, ids));
     const asOf = freshRows
       .map((r) => r.lastObsDate)
       .filter((d): d is string => !!d)
