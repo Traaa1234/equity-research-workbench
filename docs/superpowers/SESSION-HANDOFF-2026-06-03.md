@@ -31,8 +31,9 @@ Quality(Piotroski/Altman/Beneish), Peers, Ask(RAG over filings).
 Watchlist (`/watchlist`): Roll-up, Discover(semantic NL search), Search, Ask.
 **Macro (`/macro`): cross-asset "macro weather" dashboard.** **Countries
 (`/macro/countries`): cross-country investability scorecard.** **Curve
-(`/macro/curve`): Treasury yield-curve detail.** (All three NEW this session —
-see below.) Plus: cron refresh, add-ticker, health, CI.
+(`/macro/curve`): Treasury yield-curve detail.** **Correlations
+(`/macro/correlations`): cross-asset correlation matrix.** (All four NEW this
+session — see below.) Plus: cron refresh, add-ticker, health, CI.
 
 **Universe seeder:** COMPLETE — ~6,300 of ~6,500 tickers have descriptions +
 1024-d embeddings (`companies_universe`).
@@ -71,10 +72,19 @@ Treasury yield-curve page extending `/macro`. **Live at `/macro/curve`, deployed
 - **Note:** the recession "WATCH" level fires when 3m10y un-inverted within ~6mo (recessions historically *begin* after re-steepening). A2b (Fed/ECB/BoJ decision calendar) was split off as a future slice.
 
 ### Shared-store note (important)
-`macro_series` + `macro_freshness` are now shared by A1 + B1 + A2a. Each service's reads (`getBoard`/`getScorecard`/`getCurve`) **filter to their own series ids** so `asOf`/stale-banners stay accurate (A1's `MacroService.getBoard` was fixed this session to scope its reads — `inArray(... MACRO_REGISTRY ids)`). New slices reusing the store MUST do the same.
+`macro_series` + `macro_freshness` are shared by A1 + B1 + A2a + A3a. Each service's reads (`getBoard`/`getScorecard`/`getCurve`/`getMatrices`) **filter to their own series ids** so `asOf`/stale-banners stay accurate (A1's `MacroService.getBoard` was fixed this session to scope its reads — `inArray(... MACRO_REGISTRY ids)`). A3a is read-only (no writes/refresh — it relies on A1+B1 to keep its 7 series current). New slices reusing the store MUST scope their reads the same way.
+
+## NEW: Global Macro — Slice A3a (Cross-Asset Correlation Matrix) — SHIPPED
+
+Correlation heatmap extending `/macro`. **Live at `/macro/correlations`, deployed. PURE compute-on-read — no new table/migration/RLS/provider/cron/backfill** (reads 7 series already in `macro_series`).
+
+- **Spec/plan:** `docs/superpowers/specs/2026-06-03-correlation-matrix-design.md` + `.../plans/2026-06-03-correlation-matrix.md`.
+- **What it is:** 7×7 rolling-correlation heatmap (red↔slate↔blue) over **daily returns/changes** of SPY, DGS10, GC=F, DTWEXBGS, BAMLH0A0HYM2, CL=F, ^VIX; 30/60/90-day window toggle (client-side over 3 pre-computed matrices). Correlations on the **date intersection** of all 7 (so every cell shares the same dates); null cell when a window has <10 obs or zero variance.
+- **Key files:** `lib/compute/correlation-registry.ts` (7 assets + `return`/`diff` transform), `lib/compute/correlation.ts` (`dailyChange`/`alignByDate`/`pearson`/`correlationMatrix`), `lib/services/correlation.ts` (`getMatrices()` → assets + {30,60,90} matrices + asOf). API `app/api/correlations/route.ts`. UI `app/(app)/macro/correlations/page.tsx` + `_components/correlation-matrix.tsx`; nav "Correlations" entry.
+- **KNOWN LIMITATION (not a bug):** **SPY refreshes only weekly** (it's a B1 country ETF on the Sunday `countries` cron), while the other 6 refresh daily — so the intersection's equity leg can lag up to ~6 trading days; `asOf` honestly shows that date and the impact on 30/60/90d correlations is small. **Fix when desired:** add SPY to the daily `macro` refresh (or it self-resolves once A4 sector-rotation adds daily equity/sector ETFs).
 
 ### Global-macro future slices (not yet built)
-**A2b** central-bank decision calendar (Fed/ECB/BoJ — has a free-data-source question) · **A3** regime detection / correlation matrix (deliberately deferred — A1 chose rule-based signals, not a composite regime score) · **A4** sector-rotation map · **A5** macro event calendar (free-data-source question). The shared foundation (FRED + yfinance providers incl. `pricesBatch`, `macro_series` store, the `macro`/`countries`/`curve` cron-kind pattern, registry + compute-on-read + page/drawer/heatmap UI patterns) is built and reusable.
+**A3b** regime read (risk-on/off classification — can build on A3a's correlations; the deferred composite-regime piece) · **A2b** central-bank decision calendar (Fed/ECB/BoJ — free-data-source question) · **A4** sector-rotation map (depends on A3b + daily sector ETFs) · **A5** macro event calendar (free-data-source question). The shared foundation (FRED + yfinance providers incl. `pricesBatch`, `macro_series` store, the `macro`/`countries`/`curve` cron-kind pattern, registry + compute-on-read + page/drawer/heatmap/matrix UI patterns) is built and reusable.
 
 ## Parked threads (resume points — unchanged)
 
@@ -92,6 +102,7 @@ Treasury yield-curve page extending `/macro`. **Live at `/macro/curve`, deployed
 ## Suggested next directions
 
 - **Complete the B1 country backfill** (quick): once FRED's per-IP limit resets, run `pnpm seed-countries` (prod) to fill JP/AU/KR + EM macro series; confirm `FRED_API_KEY` is in **Vercel env** so the weekly cron is clean.
-- **Next global-macro slice:** A2b (central-bank calendar), A3 (regime/correlation), A4 (sector rotation), or A5 (event calendar) — foundation is in place and reusable.
+- **Next global-macro slice:** A3b (regime read — builds on A3a's correlations), A2b (central-bank calendar), A4 (sector rotation), or A5 (event calendar) — foundation is in place and reusable.
+- **Optional A3a polish:** add SPY to the daily `macro` refresh so the correlation matrix's equity leg is daily-fresh (currently weekly via the countries cron).
 - **Resume a parked thread** (transcripts data-source decision, or the journal-calibration dimensions question).
 - **Optional polish:** source current per-country CPI indexes to make B1's inflation dimension non-US (best-effort gap); add the `macro_freshness` RLS test (Minor gap flagged in A1 review).
