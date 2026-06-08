@@ -4,6 +4,7 @@ import { config } from 'dotenv';
 import { sql } from 'drizzle-orm';
 import { makeTestServiceDb } from '../helpers/test-db';
 import { SectorRotationService } from '@/lib/services/sector-rotation';
+import { NotFoundError } from '@/lib/providers/types';
 import type { YFinanceProvider } from '@/lib/providers/yfinance';
 
 config({ path: '.env.local' });
@@ -44,11 +45,15 @@ describe('sectors API shape', () => {
     await svc.refreshAll('daily');
     const detail = await svc.getSeriesHistory('XLK', '1y');
     expect(detail.seriesId).toBe('XLK');
+    expect(detail.label).toBe('Technology');
     expect(Array.isArray(detail.history)).toBe(true);
+    expect(detail.history.length).toBeGreaterThan(0);
+    expect(detail.history[0]).toHaveProperty('date');
+    expect(detail.history[0]).toHaveProperty('value');
   });
 
   it('getSeriesHistory throws NotFoundError for SPY (benchmark, not a display sector)', async () => {
     const svc = new SectorRotationService({ db: dbH.db });
-    await expect(svc.getSeriesHistory('SPY', '1y')).rejects.toThrow();
+    await expect(svc.getSeriesHistory('SPY', '1y')).rejects.toThrow(NotFoundError);
   });
 });
