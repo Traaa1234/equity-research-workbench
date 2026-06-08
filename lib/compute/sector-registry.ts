@@ -5,7 +5,7 @@ export interface SectorDef {
   isBenchmark?: true;
 }
 
-export const SECTOR_REGISTRY: SectorDef[] = [
+export const SECTOR_REGISTRY: readonly SectorDef[] = [
   { seriesId: 'XLK',  label: 'Technology',             shortLabel: 'Tech'      },
   { seriesId: 'XLF',  label: 'Financials',             shortLabel: 'Fin'       },
   { seriesId: 'XLV',  label: 'Health Care',            shortLabel: 'Health'    },
