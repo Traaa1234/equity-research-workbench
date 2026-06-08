@@ -52,7 +52,7 @@ export function SectorTable({ data }: { data: SectorData }) {
     <div>
       {data.stale && (
         <div className="text-[11px] text-amber-400 mb-2">
-          ⚠ data looks stale — last refresh {data.asOf}
+          ⚠ data looks stale — last refresh {data.asOf ?? 'unknown'}
         </div>
       )}
       <div className="overflow-x-auto">
