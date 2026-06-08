@@ -67,6 +67,7 @@ describe('SectorRotationService', () => {
   it('getSeriesHistory throws for an unknown seriesId', async () => {
     const svc = new SectorRotationService({ db: dbH.db });
     await expect(svc.getSeriesHistory('UNKNOWN', '1y')).rejects.toThrow();
+    await expect(svc.getSeriesHistory('SPY', '1y')).rejects.toThrow();
   });
 
   it('getSeriesHistory returns price history for a valid sector', async () => {
