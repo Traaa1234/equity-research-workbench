@@ -30,7 +30,7 @@ export function SectorDetail({
   useEffect(() => {
     if (!seriesId) { setDetail(null); setError(null); return; }
     let alive = true;
-    setLoading(true); setError(null);
+    setDetail(null); setLoading(true); setError(null);
     fetch(`/api/sectors/${encodeURIComponent(seriesId)}?range=${range}`)
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d) => { if (alive) setDetail(d as History); })
@@ -102,7 +102,7 @@ export function SectorDetail({
             )}
           </div>
 
-          <Dialog.Close className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-sm">
+          <Dialog.Close aria-label="Close" className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-sm">
             ✕
           </Dialog.Close>
         </Dialog.Content>
