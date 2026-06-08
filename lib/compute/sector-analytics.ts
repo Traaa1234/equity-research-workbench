@@ -17,6 +17,7 @@ export const WINDOWS: Record<ReturnWindow, number> = {
 /**
  * Return (prices[last] / prices[last - windowOffset]) - 1.
  * Uses trading-day offset (array index), NOT calendar-date arithmetic.
+ * Assumes prices is sorted ascending by date — unsorted input silently produces wrong results.
  * Returns null when prices.length <= windowOffset or reference price is 0.
  */
 export function periodReturn(prices: PricePoint[], windowOffset: number): number | null {
