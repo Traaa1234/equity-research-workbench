@@ -7,10 +7,11 @@ import type { PricesService } from '@/lib/services/prices';
 import type { MacroService } from '@/lib/services/macro';
 import type { CountryScorecardService } from '@/lib/services/country-scorecard';
 import type { YieldCurveService } from '@/lib/services/yield-curve';
+import type { SectorRotationService } from '@/lib/services/sector-rotation';
 import type { PeriodType, StatementType } from '@/lib/providers/types';
 import { logger } from '@/lib/logger';
 
-export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro' | 'countries' | 'curve';
+export type RefreshKind = 'snapshot' | 'fundamentals' | 'prices' | 'earnings' | 'macro' | 'countries' | 'curve' | 'sectors';
 
 interface Deps {
   db: ServiceDb;
@@ -21,6 +22,7 @@ interface Deps {
   macroSvc?: MacroService;
   countrySvc?: CountryScorecardService;
   curveSvc?: YieldCurveService;
+  sectorSvc?: SectorRotationService;
   /** Time budget in milliseconds. Vercel Cron Hobby max is 60s; default to 50s. */
   budgetMs?: number;
 }
@@ -110,6 +112,17 @@ export async function runRefresh(deps: Deps): Promise<RefreshSummary> {
     summary.failed = r.failed;
     summary.durationMs = Date.now() - started;
     logger.info(summary, 'refresh-runner: curve done');
+    return summary;
+  }
+
+  if (deps.kind === 'sectors') {
+    if (!deps.sectorSvc) throw new Error('sectorSvc required for sectors refresh');
+    const r = await deps.sectorSvc.refreshAll('daily');
+    summary.attempted = r.ok + r.failed;
+    summary.succeeded = r.ok;
+    summary.failed = r.failed;
+    summary.durationMs = Date.now() - started;
+    logger.info(summary, 'refresh-runner: sectors done');
     return summary;
   }
 

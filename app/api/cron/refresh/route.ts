@@ -15,9 +15,10 @@ import { MacroService } from '@/lib/services/macro';
 import { FredProvider } from '@/lib/providers/fred';
 import { CountryScorecardService } from '@/lib/services/country-scorecard';
 import { YieldCurveService } from '@/lib/services/yield-curve';
+import { SectorRotationService } from '@/lib/services/sector-rotation';
 import { loadServerEnv } from '@/lib/env';
 
-const VALID_KINDS: readonly RefreshKind[] = ['snapshot', 'fundamentals', 'prices', 'earnings', 'macro', 'countries', 'curve'];
+const VALID_KINDS: readonly RefreshKind[] = ['snapshot', 'fundamentals', 'prices', 'earnings', 'macro', 'countries', 'curve', 'sectors'];
 
 let cachedDeps: {
   snapshot: SnapshotService;
@@ -26,6 +27,7 @@ let cachedDeps: {
   macro: MacroService;
   country: CountryScorecardService;
   curve: YieldCurveService;
+  sector: SectorRotationService;
 } | null = null;
 
 function buildDeps() {
@@ -38,6 +40,7 @@ function buildDeps() {
   const macro = new MacroService({ db, fred: new FredProvider(), yf });
   const country = new CountryScorecardService({ db, fred: new FredProvider(), yf });
   const curve = new YieldCurveService({ db, fred: new FredProvider() });
+  const sector = new SectorRotationService({ db, yf });
   // Slice 4: yfinance is primary (free + unlimited); FD is fallback (paid, quota-capped)
   cachedDeps = {
     snapshot: new SnapshotService({ db, primary: yf, fallback: fd, redis }),
@@ -45,7 +48,8 @@ function buildDeps() {
     prices: new PricesService({ db, primary: yf, fallback: fd, redis }),
     macro,
     country,
-    curve
+    curve,
+    sector
   };
   return cachedDeps;
 }
@@ -73,6 +77,7 @@ export async function GET(req: Request) {
       macroSvc: deps.macro,
       countrySvc: deps.country,
       curveSvc: deps.curve,
+      sectorSvc: deps.sector,
       budgetMs: 50_000
     });
     return ok(summary);

@@ -37,7 +37,8 @@
     "seed-universe": "tsx scripts/seed-universe.ts",
     "seed-macro": "tsx scripts/seed-macro.ts",
     "seed-countries": "tsx scripts/seed-countries.ts",
-    "seed-curve": "tsx scripts/seed-curve.ts"
+    "seed-curve": "tsx scripts/seed-curve.ts",
+    "seed-sectors": "tsx scripts/seed-sectors.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
