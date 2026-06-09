@@ -5,6 +5,7 @@ import { SectorRotationService } from '@/lib/services/sector-rotation';
 import { SectorTable } from './_components/sector-table';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 15; // allow Neon cold-start on first request
 
 export default async function SectorsPage() {
   await requireUserId();

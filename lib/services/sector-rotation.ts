@@ -98,10 +98,15 @@ export class SectorRotationService {
 
   async getSectors(): Promise<SectorData> {
     const ids = sectorSeriesIds();
+    // Only fetch the last ~1.5 years — enough to cover the 1Y window (252 trading days ≈ 365
+    // calendar days) plus a generous buffer for holidays/gaps. Backfill stores 5yr but the
+    // returns computation never needs more than 253 points, so pulling all 5yr was 4× wasted
+    // I/O and the primary cause of Vercel function timeout on first cold request.
+    const since = isoYearsAgo(1.5);
     const rows = await this.deps.db
       .select()
       .from(macroSeries)
-      .where(inArray(macroSeries.seriesId, ids))
+      .where(and(inArray(macroSeries.seriesId, ids), sql`${macroSeries.obsDate} >= ${since}`))
       .orderBy(asc(macroSeries.obsDate));
 
     // Build per-symbol price arrays
